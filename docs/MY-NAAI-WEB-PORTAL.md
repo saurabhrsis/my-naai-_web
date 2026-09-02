@@ -181,6 +181,8 @@ They must not be merged into one worker or registered with the same scope. The P
 | `src/lib/planDetails.js` | Plan catalog and active-subscription normalization |
 | `src/lib/devtoolsShield.js` | Swallows the known Chrome DevTools Performance-panel crash |
 | `src/lib/push.js` | Firebase initialization, permission/token flow and notification route mapping |
+| `public/assets/brand/naai-mark.svg` | Official MyNaai mark (inherits `currentColor`) used by the in-app brand chip |
+| `public/assets/brand/naai-logo-dark.svg` | Official logo on the dark app tile; the default image fallback everywhere |
 | `public/firebase-messaging-sw.js` | Background push display and notification click routing |
 | `src/components/UserScreens.jsx` | Customer screens, bookings and delay response |
 | `src/components/SalonScreens.jsx` | Salon queue, booking request, delay action and partner screens |

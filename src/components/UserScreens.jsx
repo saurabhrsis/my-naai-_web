@@ -64,7 +64,7 @@ import {
   firstName,
 } from './Shared';
 
-const USER_FALLBACK_IMAGE = '/assets/myNaai.jpeg';
+const USER_FALLBACK_IMAGE = '/assets/brand/naai-logo-dark.svg';
 
 function getList(response, keys = []) {
   if (Array.isArray(response?.data)) return response.data;
@@ -215,6 +215,14 @@ export function HomeScreen({ session, navigate, notify }) {
       });
       setSalons(decorated);
 
+      // Keep the single-bookmark state in step with the API, like the app's
+      // savedSalonId (only one salon can be bookmarked at a time).
+      const apiSavedId = decorated.find(salon => salon.isSaved)?.id;
+      if (apiSavedId) {
+        setSavedId(apiSavedId);
+        localStorage.setItem('mynaaiSavedSalonId', String(apiSavedId));
+      }
+
       if (adResult.status === 'fulfilled') {
         const images = adResult.value?.data?.images || [];
         setAds(images.map(src => ({ src, title: 'Good hair days, on demand', kicker: 'Book your time — skip the queue' })));
@@ -251,11 +259,25 @@ export function HomeScreen({ session, navigate, notify }) {
   }, [salons, search]);
 
   const bookmark = async salonId => {
+    // Mirror the mobile dashboard: only one salon can be bookmarked at a time.
+    if (savedId && savedId !== salonId) {
+      notify?.('info', 'Bookmark exists. Please remove the previously saved salon first.');
+      return;
+    }
     try {
       const response = await api.toggleSaveSalon({ salonId });
+      if (response?.status && response.status !== 'SUCCESS') throw new Error(response.message || 'Could not update saved salon.');
       const message = String(response?.message || '').toLowerCase();
       const next = message.includes('save') && !message.includes('unsave') ? salonId : null;
       setSavedId(next);
+      if (next) localStorage.setItem('mynaaiSavedSalonId', String(next)); else localStorage.removeItem('mynaaiSavedSalonId');
+      // Re-pin the saved salon to the top, like the app's post-toggle reload.
+      setSalons(current => [...current].sort((left, right) => {
+        if ((left.id === next) !== (right.id === next)) return left.id === next ? -1 : 1;
+        const leftDistance = Number.isFinite(left.distance) ? left.distance : Infinity;
+        const rightDistance = Number.isFinite(right.distance) ? right.distance : Infinity;
+        return leftDistance - rightDistance;
+      }));
       notify?.('success', next ? 'Salon saved.' : 'Salon removed from saved list.');
     } catch (error) { notify?.('error', getErrorMessage(error, 'Could not update saved salon.')); }
   };

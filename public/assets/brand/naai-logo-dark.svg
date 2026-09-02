@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="MyNaai">
+  <!-- Official MyNaai logo: white mark on the near-black app tile. -->
+  <rect width="512" height="512" rx="96" fill="#0a0a0a" />
+  <g fill="#ffffff" transform="translate(96,96) scale(5)">
+    <polygon points="21,19 27,19 30.5,28 16,28" />
+    <polygon points="37,19 43,19 47,28 33,28" />
+    <polygon points="31.5,27.5 41.5,27.5 39.5,34.5 29,34.5" />
+    <rect x="13" y="33.5" width="37.5" height="2" />
+    <polygon points="13,34.5 23.5,34.5 18.75,44 9,44" />
+    <polygon points="25.5,34.5 38.5,34.5 35,44 29,44" />
+    <polygon points="40.5,34.5 50.5,34.5 54.5,44 45,44" />
+  </g>
+</svg>
