@@ -34,7 +34,7 @@ VITE_FIREBASE_APP_ID=...
 VITE_FIREBASE_VAPID_KEY=...
 ```
 
-Enable the **Web Push certificates** API in Firebase Cloud Messaging and copy the public VAPID key. The existing backend should persist a non-empty `deviceToken` sent with OTP verification/onboarding, just as the mobile app does, but it must allow the field to be omitted when a browser denies permission or does not support push. Without these values, the portal continues to work with in-app notifications and live Socket.IO refreshes, but the browser will not receive push notifications.
+Enable the **Web Push certificates** API in Firebase Cloud Messaging and copy the public VAPID key. Because push notifications are a core MyNaai feature, the portal requires a non-empty browser `deviceToken` before OTP verification/onboarding, and the backend can keep the field required. Without these values or browser permission, authentication is intentionally blocked until Web Push is configured.
 
 ## API compatibility
 

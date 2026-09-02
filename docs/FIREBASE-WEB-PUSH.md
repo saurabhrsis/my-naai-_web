@@ -64,7 +64,7 @@ The implementation is in `src/lib/push.js`:
 }
 ```
 
-The API payload differs slightly between login and onboarding, but `deviceToken` follows the mobile app’s existing contract. When the browser cannot obtain a token, the portal omits `deviceToken` instead of sending an empty string. The backend should therefore treat it as optional and associate it with the authenticated user or salon only when a non-empty token is supplied. It should use stored tokens when sending FCM messages.
+The API payload differs slightly between login and onboarding, but `deviceToken` follows the mobile app’s existing contract. Because MyNaai treats push as a required feature, the portal obtains a non-empty token before it sends the OTP request and again before verification/onboarding. If the browser cannot obtain a token, the portal blocks the authentication action with a setup message instead of sending an empty string. The backend can therefore keep its required, non-empty `deviceToken` validation for these auth flows. It should associate the token with the authenticated user or salon and use it when sending FCM messages.
 
 For a previously authenticated session, app startup installs the foreground listener only when push is configured, supported and permission is already granted. It does not unexpectedly prompt on every browser restart. The next successful login/onboarding refreshes the token and sends it to the API again.
 
@@ -108,19 +108,19 @@ The backend is expected to persist the delay and send the `DELAY_TIME_PROPOSAL` 
 
 ## 4.1 Backend validation requirement
 
-A browser cannot guarantee a push token: the user may deny permission, the browser may not support Web Push, or the site may be running without HTTPS. The login/onboarding API should not reject authentication only because push is unavailable.
+MyNaai intentionally treats push as a required feature because booking notifications, buzzer behavior and notification actions are part of the core workflow. Keep `deviceToken` required and non-empty on the authentication/onboarding endpoints. The portal now obtains the browser token before sending the OTP request and blocks the request with a clear setup error if it cannot obtain one; it never sends `deviceToken: ''`.
 
-If the backend uses Joi or a similar validator, the `deviceToken` field should be optional and nullable/empty, for example:
+If the backend uses Joi or a similar validator, a required rule can remain, for example:
 
 ```js
-deviceToken: Joi.string().trim().allow('', null).optional()
+deviceToken: Joi.string().trim().min(1).required()
 ```
 
-Then persist/register the token only when it is a non-empty string. The web portal now omits the field entirely when it cannot obtain a token; it does not send `deviceToken: ''`.
+The backend must still accept a browser-generated FCM registration token as a valid token string. No separate “Firebase ID” format is needed. The web app should be registered in the same Firebase project used by the mobile app so the existing Firebase Admin/server sender can send to it.
 
 For customers or salon owners who use both mobile and web, the recommended design is a device-token table or array containing `userId`, `token`, `platform` (`android`, `ios` or `web`), `lastSeenAt` and `active`. Do not overwrite a person’s mobile token with their browser token. Send to all active tokens and remove tokens Firebase reports as unregistered.
 
-A dedicated authenticated endpoint such as `POST /api/notifications/register-device` is also recommended for token refresh after login:
+A dedicated authenticated endpoint such as `POST /api/notifications/register-device` is recommended for token refresh after login:
 
 ```json
 {
@@ -129,8 +129,7 @@ A dedicated authenticated endpoint such as `POST /api/notifications/register-dev
 }
 ```
 
-The current portal sends the token during OTP verification/onboarding, so this endpoint is not required for the initial integration, but it is useful when a browser token rotates or the user grants notification permission later.
-
+The current portal sends the token during the auth flow, but this endpoint is useful when a browser token rotates or the user changes notification permission. If the backend requires only one token field, make sure a web login does not disable the user’s mobile notifications by overwriting the mobile token.
 ### Foreground delivery
 
 When the portal tab is open, `onMessage()` in `src/lib/push.js` delivers the payload to `App.jsx`. The app maps the payload to a route immediately so the matching screen is visible:

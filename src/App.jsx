@@ -82,6 +82,14 @@ function saveSession(session) {
   return { ...session, role, userId: session.userId || user?.userId || user?.salon?.salonId || user?.salonId || user?.id || '' };
 }
 
+const PUSH_REQUIRED_MESSAGE = 'Browser notifications are required to sign in. Configure Firebase Web Push, allow notifications, then reload the page.';
+
+async function requirePushToken() {
+  const token = await getPushToken({ requestPermission: true });
+  if (!token) throw new Error(PUSH_REQUIRED_MESSAGE);
+  return token;
+}
+
 function withDeviceToken(payload, token) {
   const value = typeof token === 'string' ? token.trim() : '';
   return value ? { ...payload, deviceToken: value } : payload;
@@ -184,6 +192,7 @@ function AuthFlow({ onComplete }) {
   const [mobile, setMobile] = useState('');
   const [otp, setOtp] = useState('');
   const [name, setName] = useState('');
+  const [pushToken, setPushToken] = useState('');
   const [userExists, setUserExists] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -194,14 +203,14 @@ function AuthFlow({ onComplete }) {
     event.preventDefault();
     if (!/^\d{10}$/.test(mobile)) return setError('Enter a valid 10-digit mobile number.');
     setBusy(true); setError('');
-    try { const response = role === 'USER' ? await api.userLogin({ phoneNumber: mobile }) : await api.SalonLogin({ phoneNumber: mobile }); if (response?.status !== 'SUCCESS') throw new Error(response?.message || 'Could not send OTP.'); setStep('otp'); setOtp(''); } catch (requestError) { setError(getErrorMessage(requestError, 'Could not send OTP. Please try again.')); } finally { setBusy(false); }
+    try { const token = await requirePushToken(); setPushToken(token); const response = role === 'USER' ? await api.userLogin({ phoneNumber: mobile }) : await api.SalonLogin({ phoneNumber: mobile }); if (response?.status !== 'SUCCESS') throw new Error(response?.message || 'Could not send OTP.'); setStep('otp'); setOtp(''); } catch (requestError) { setError(getErrorMessage(requestError, 'Could not send OTP. Please try again.')); } finally { setBusy(false); }
   };
   const verify = async event => {
     event.preventDefault();
     if (!/^\d{6}$/.test(otp)) return setError('Enter the 6-digit OTP.');
     setBusy(true); setError('');
     try {
-      const deviceToken = await getPushToken({ requestPermission: true });
+      const deviceToken = pushToken || await requirePushToken();
       const payload = withDeviceToken({ phoneNumber: mobile, otp }, deviceToken);
       const response = role === 'USER' ? await api.verifyLogin(payload) : await api.verifySalonLogin(payload);
       if (response?.status !== 'SUCCESS') throw new Error(response?.message || 'OTP verification failed.');
@@ -215,7 +224,7 @@ function AuthFlow({ onComplete }) {
     event.preventDefault();
     if (!name.trim()) return setError('Tell us your name to finish setting up.');
     setBusy(true); setError('');
-    try { const deviceToken = await getPushToken({ requestPermission: true }); const response = await api.userOnBoard(withDeviceToken({ phoneNumber: mobile, fullName: name.trim() }, deviceToken)); if (response?.status !== 'SUCCESS') throw new Error(response?.message || 'Could not create account.'); onComplete({ role: 'USER', token: response.data?.token, user: response.data, userId: response.data?.userId, demo: false }); } catch (createError) { setError(getErrorMessage(createError, 'Could not create your account.')); } finally { setBusy(false); }
+    try { const deviceToken = pushToken || await requirePushToken(); const response = await api.userOnBoard(withDeviceToken({ phoneNumber: mobile, fullName: name.trim() }, deviceToken)); if (response?.status !== 'SUCCESS') throw new Error(response?.message || 'Could not create account.'); onComplete({ role: 'USER', token: response.data?.token, user: response.data, userId: response.data?.userId, demo: false }); } catch (createError) { setError(getErrorMessage(createError, 'Could not create your account.')); } finally { setBusy(false); }
   };
   if (view === 'onboarding') return <div className="auth-page onboarding-page"><div className="onboarding-slide" style={{ backgroundImage: `url(${onboarding[slide].image})` }}><div className="auth-image-shade" /><div className="onboarding-top"><Brand light /><button className="skip-button" onClick={finishOnboarding}>Skip</button></div><div className="onboarding-copy"><span className="eyebrow">{onboarding[slide].kicker}</span><h1>{onboarding[slide].title}</h1><p>{onboarding[slide].text}</p><div className="onboarding-controls"><div className="onboarding-dots">{onboarding.map((item, index) => <button key={item.kicker} className={index === slide ? 'active' : ''} onClick={() => setSlide(index)} aria-label={`Slide ${index + 1}`} />)}</div><button className="next-circle" onClick={() => slide === onboarding.length - 1 ? finishOnboarding() : setSlide(current => current + 1)} aria-label={slide === onboarding.length - 1 ? 'Get started' : 'Next'}>{slide === onboarding.length - 1 ? <Sparkles size={21} /> : <ChevronRight size={22} />}</button></div></div></div></div>;
   if (view === 'register') return <SalonRegistration onBack={() => setView('login')} onComplete={onComplete} demo={() => demo('SALON')} />;
@@ -232,15 +241,15 @@ function SalonRegistration({ onBack, onComplete, demo }) {
   const [pushToken, setPushToken] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const request = async event => { event.preventDefault(); if (!/^\d{10}$/.test(mobile)) return setError('Enter a valid 10-digit mobile number.'); setBusy(true); setError(''); try { const response = await api.salonOwnerLogin({ phoneNumber: mobile }); if (response?.status !== 'SUCCESS') throw new Error(response?.message || 'Could not send OTP.'); setStep('otp'); } catch (requestError) { setError(getErrorMessage(requestError, 'Could not send OTP.')); } finally { setBusy(false); } };
+  const request = async event => { event.preventDefault(); if (!/^\d{10}$/.test(mobile)) return setError('Enter a valid 10-digit mobile number.'); setBusy(true); setError(''); try { const token = await requirePushToken(); setPushToken(token); const response = await api.salonOwnerLogin({ phoneNumber: mobile }); if (response?.status !== 'SUCCESS') throw new Error(response?.message || 'Could not send OTP.'); setStep('otp'); } catch (requestError) { setError(getErrorMessage(requestError, 'Could not send OTP.')); } finally { setBusy(false); } };
   const verify = async event => { event.preventDefault(); if (!/^\d{6}$/.test(otp)) return setError('Enter the 6-digit OTP.'); setBusy(true); setError(''); try { const response = await api.verifySalonOwnerLogin({ phoneNumber: mobile, otp }); if (response?.status !== 'SUCCESS') throw new Error(response?.message || 'OTP verification failed.'); setTempToken(response.data?.token || ''); setStep('profile'); } catch (verifyError) { setError(getErrorMessage(verifyError, 'That code did not work.')); } finally { setBusy(false); } };
   const continueProfile = event => { event.preventDefault(); if (!profile.ownerName.trim() || !profile.salonName.trim() || !profile.addressLine1.trim()) return setError('Please complete your name, salon name and address.'); setError(''); setStep('business'); };
   const continueBusiness = async event => {
     event.preventDefault();
     if (!business.genderType) return setError('Choose a salon type.');
     setError(''); setBusy(true);
-    try { setPushToken(await getPushToken({ requestPermission: true })); setStep('plans'); }
-    catch { setPushToken(''); setStep('plans'); }
+    try { setPushToken(await requirePushToken()); setStep('plans'); }
+    catch (pushError) { setError(getErrorMessage(pushError, PUSH_REQUIRED_MESSAGE)); }
     finally { setBusy(false); }
   };
   if (step === 'plans') return <SubscriptionScreen params={{ registrationData: { ...profile, phoneNumber: mobile, tempToken, genderType: business.genderType, agentCode: business.agentCode, ...(pushToken ? { deviceToken: pushToken } : {}), latitude: null, longitude: null, businessHours: [{ openingTime: `${business.openingTime}:00`, closingTime: `${business.closingTime}:00`, breakStartTime: null, breakEndTime: null }], services: DEFAULT_SERVICES[business.genderType.toLowerCase()] || [] }, onBack }} session={null} notify={(type, message) => setError(message)} onAuthComplete={onComplete} />;
