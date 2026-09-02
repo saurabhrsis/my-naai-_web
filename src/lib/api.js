@@ -66,7 +66,8 @@ async function request(path, { method = 'GET', body, params, headers = {}, auth 
     requestHeaders['Content-Type'] = 'application/json';
   }
   const token = getToken();
-  if (auth && token) requestHeaders.Authorization = `Bearer ${token}`;
+  const hasAuthorizationHeader = Object.keys(requestHeaders).some(key => key.toLowerCase() === 'authorization');
+  if (auth && token && !hasAuthorizationHeader) requestHeaders.Authorization = `Bearer ${token}`;
 
   const response = await fetch(`${API_BASE_URL}${path}${queryString(params)}`, {
     method,
@@ -81,6 +82,10 @@ async function request(path, { method = 'GET', body, params, headers = {}, auth 
     data = text ? JSON.parse(text) : null;
   } catch {
     data = text;
+  }
+
+  if (data?.status === 'PLAN_EXPIRED' && typeof window !== 'undefined') {
+    window.dispatchEvent(new Event('mynaai:plan-expired'));
   }
 
   if (!response.ok) {
@@ -143,7 +148,7 @@ export const api = {
   // Salon owner API.
   salonOwnerLogin: payload => post('/api/salons/send-register-otp', payload, { auth: false }),
   createPaymentOrder: payload => post('/api/salons/create-payment-order', payload, { auth: false }),
-  createSalon: payload => post('/api/salons/create-salon-with-plan', payload),
+  createSalon: (payload, options = {}) => post('/api/salons/create-salon-with-plan', payload, options),
   renewSalon: payload => post('/api/salons/renew-salon-plan', payload),
   verifySalonOwnerLogin: payload => post('/api/salons/verify-otp-register', payload, { auth: false }),
   salonRequest: payload => post('/api/salonrequest/create-request', payload, { auth: false }),

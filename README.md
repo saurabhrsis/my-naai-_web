@@ -51,5 +51,5 @@ The complete portal behavior and operational notes are in [`docs/MY-NAAI-WEB-POR
 - Foreground Firebase messages use the same route mapping without reloading the app.
 - Salon booking requests offer +10/+20 minute time updates; the mobile-compatible owner-action API sends the delay notification to the customer.
 - Customer discovery sends browser latitude/longitude to `userSalonList`, sorts known distances nearest-first (while keeping the API list when location is unavailable), and offers a location retry.
-- An incomplete salon login is locked to the full profile editor until the mobile-compatible `edit-salon-profile` body succeeds with valid contact, address, coordinates, hours, services and specialists.
+- An incomplete salon login is locked to the full profile editor until the mobile-compatible `edit-salon-profile` body succeeds with valid contact, address, coordinates, hours, services and specialists; it then goes through the subscription choice (including the 20-day free onboarding plan) before the normal queue.
 - The install action appears during onboarding/authentication and in the desktop workspace sidebar when the browser exposes the install prompt.

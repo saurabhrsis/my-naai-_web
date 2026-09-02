@@ -222,8 +222,8 @@ export function SalonAccountScreen({ session, navigate, notify, onSessionUpdate 
   const toggleOpen = async () => { const next = !isOpen; setIsOpen(next); try { const response = await api.SalonOpenClose({ salonId: session.userId, isOpen: next }); if (response?.status && response.status !== 'SUCCESS') throw new Error(response.message || 'Could not update status'); notify?.('success', next ? 'Salon is now open.' : 'Salon is now closed.'); } catch (error) { setIsOpen(!next); notify?.('error', getErrorMessage(error, 'Could not update salon status.')); } };
   if (loading) return <div className="screen salon-account-screen"><PageHeader title="Salon account" /><div className="account-loading"><Spinner label="Loading salon profile…" /></div></div>;
   const status = getSalonStatus(profile.businessHours, isOpen);
-  const menus = [{ label: 'Edit salon profile', caption: 'Photos, hours, services and specialists', icon: Edit3, route: 'editProfile' }, { label: 'About MyNaai', caption: 'How MyNaai helps your business', icon: Store, route: 'salonAbout' }, { label: 'Frequently asked questions', caption: 'Partner help and booking basics', icon: Bell, route: 'salonFaq' }, { label: 'Terms & conditions', caption: 'Partner terms', icon: Receipt, route: 'salonTerms' }, { label: 'Subscription plans', caption: 'Upgrade or renew your plan', icon: WalletCards, route: 'subscription' }, { label: 'Need a hand?', caption: 'Call 8380017393', icon: Phone, action: () => window.open('tel:8380017393') }];
-  return <div className="screen salon-account-screen"><PageHeader title="Salon account" subtitle="Your business, in one place." action={<button className="refresh-text-button" onClick={load}><Zap size={15} /> Refresh</button>} /><section className="salon-profile-hero"><div className="salon-profile-photo"><ImageWithFallback src={profile.imageUrl || profile.imagesArray?.[0]} fallback="/assets/my_naai.png" alt={profile.salonName || 'Salon'} /></div><div className="salon-profile-copy"><span className="eyebrow">SALON PARTNER</span><h2>{profile.salonName || 'Your salon'}</h2><p><MapPin size={14} /> {profile.addressLine1 || profile.city || 'Add your salon address'}</p><span className={cx('account-status', status.isOpen ? 'open' : 'closed')}><i /> {status.isOpen ? 'Open for bookings' : 'Closed for bookings'}</span></div><Button size="small" variant="secondary" onClick={() => navigate('editProfile')}><Pencil size={15} /> Edit</Button></section><div className="salon-live-status"><div><span className="eyebrow">BOOKING STATUS</span><strong>{status.isOpen ? 'Customers can book you now' : 'Your salon is currently closed'}</strong><small>Toggle this when you are ready to take the next appointment.</small></div><Toggle checked={isOpen} onChange={toggleOpen} label={isOpen ? 'Open' : 'Closed'} /></div><div className="salon-profile-stats"><div><strong>{profile.services?.length || 0}</strong><span>Services</span></div><div><strong>{profile.barbers?.length || 0}</strong><span>Specialists</span></div><div><strong>{Number(profile.ratingAverage || 0).toFixed(1)}</strong><span>Rating</span></div></div><div className="account-card partner-menu">{menus.map(item => <button className="account-menu-row" key={item.label} onClick={item.action || (() => navigate(item.route))}><span className="account-menu-icon"><item.icon size={18} /></span><span><strong>{item.label}</strong><small>{item.caption}</small></span><ChevronRight size={17} /></button>)}</div><p className="version-label">MyNaai partner portal · 1.0</p></div>;
+  const menus = [{ label: 'Edit salon profile', caption: 'Photos, hours, services and specialists', icon: Edit3, route: 'editProfile' }, { label: 'About MyNaai', caption: 'How MyNaai helps your business', icon: Store, route: 'salonAbout' }, { label: 'Frequently asked questions', caption: 'Partner help and booking basics', icon: Bell, route: 'salonFaq' }, { label: 'Terms & conditions', caption: 'Partner terms', icon: Receipt, route: 'salonTerms' }, { label: 'Subscription plans', caption: 'Upgrade or renew your plan', icon: WalletCards, route: 'subscription', params: { isUpgrade: true } }, { label: 'Need a hand?', caption: 'Call 8380017393', icon: Phone, action: () => window.open('tel:8380017393') }];
+  return <div className="screen salon-account-screen"><PageHeader title="Salon account" subtitle="Your business, in one place." action={<button className="refresh-text-button" onClick={load}><Zap size={15} /> Refresh</button>} /><section className="salon-profile-hero"><div className="salon-profile-photo"><ImageWithFallback src={profile.imageUrl || profile.imagesArray?.[0]} fallback="/assets/my_naai.png" alt={profile.salonName || 'Salon'} /></div><div className="salon-profile-copy"><span className="eyebrow">SALON PARTNER</span><h2>{profile.salonName || 'Your salon'}</h2><p><MapPin size={14} /> {profile.addressLine1 || profile.city || 'Add your salon address'}</p><span className={cx('account-status', status.isOpen ? 'open' : 'closed')}><i /> {status.isOpen ? 'Open for bookings' : 'Closed for bookings'}</span></div><Button size="small" variant="secondary" onClick={() => navigate('editProfile')}><Pencil size={15} /> Edit</Button></section><div className="salon-live-status"><div><span className="eyebrow">BOOKING STATUS</span><strong>{status.isOpen ? 'Customers can book you now' : 'Your salon is currently closed'}</strong><small>Toggle this when you are ready to take the next appointment.</small></div><Toggle checked={isOpen} onChange={toggleOpen} label={isOpen ? 'Open' : 'Closed'} /></div><div className="salon-profile-stats"><div><strong>{profile.services?.length || 0}</strong><span>Services</span></div><div><strong>{profile.barbers?.length || 0}</strong><span>Specialists</span></div><div><strong>{Number(profile.ratingAverage || 0).toFixed(1)}</strong><span>Rating</span></div></div><div className="account-card partner-menu">{menus.map(item => <button className="account-menu-row" key={item.label} onClick={item.action || (() => navigate(item.route, item.params || {}))}><span className="account-menu-icon"><item.icon size={18} /></span><span><strong>{item.label}</strong><small>{item.caption}</small></span><ChevronRight size={17} /></button>)}</div><p className="version-label">MyNaai partner portal · 1.0</p></div>;
 }
 
 function getEditorBusinessHour(value = {}) {
@@ -549,7 +549,7 @@ export function EditSalonProfileScreen({ params, session, navigate, notify, onSe
       if (isOnboarding) localStorage.setItem('isNewSalon', 'false');
       onSessionUpdate?.(next, isOnboarding ? { isNewSalon: false } : undefined);
       notify?.('success', 'Salon profile saved.');
-      if (isOnboarding) navigate('account', {}, { replace: true }); else navigate(-1);
+      if (isOnboarding) navigate('subscription', { isUpgrade: true, isOnboarding: true }, { replace: true }); else navigate(-1);
     } catch (error) {
       notify?.('error', getErrorMessage(error, 'Could not save salon profile.'));
     } finally { setSaving(false); }
@@ -569,48 +569,140 @@ export function EditSalonProfileScreen({ params, session, navigate, notify, onSe
   </form></div>;
 }
 
-const PARTNER_PLANS = [{ id: 'trial_2_months', title: 'Introductory', price: 299, duration: '2 months · 60 days', note: 'A gentle start for new partners' }, { id: 'monthly', title: 'Monthly plan', price: 199, duration: 'Per month', note: 'Flexible month-to-month growth' }, { id: 'quarterly', title: 'Quarterly plan', price: 499, duration: '3 months · 90 days', note: 'Best value for busy salons', best: true }];
-const RENEWAL_PLANS = [{ id: 'trial_2_months', title: 'Introductory', price: 179, duration: '2 months · 60 days', note: 'Restart with a simple plan' }, { id: 'monthly', title: 'Monthly plan', price: 99, duration: 'Per month', note: 'Flexible month-to-month growth' }, { id: 'quarterly', title: 'Quarterly plan', price: 249, duration: '3 months · 90 days', note: 'Best value for busy salons', best: true }];
+const PARTNER_PLANS = [
+  { id: 'trial_2_months', title: 'Introductory', price: 299, duration: '2 months · 60 days', note: 'A gentle start for new partners' },
+  { id: 'monthly', title: 'Monthly plan', price: 199, duration: 'Per month', note: 'Flexible month-to-month growth' },
+  { id: 'quarterly', title: 'Quarterly plan', price: 499, duration: '3 months · 90 days', note: 'Best value for busy salons', best: true },
+];
+const RENEWAL_PLANS = [
+  { id: 'trial_2_months', title: 'Introductory', price: 179, duration: '2 months · 60 days', note: 'Restart with a simple plan' },
+  { id: 'monthly', title: 'Monthly plan', price: 99, duration: 'Per month', note: 'Flexible month-to-month growth' },
+  { id: 'quarterly', title: 'Quarterly plan', price: 249, duration: '3 months · 90 days', note: 'Best value for busy salons', best: true },
+];
+const FREE_ONBOARDING_PLAN = { id: 'Free', title: 'Free trial', displayPrice: '₹ 00', price: 0, duration: '20 days', note: 'Start your salon journey at no cost', best: true };
 
-export function SubscriptionScreen({ params = {}, navigate, notify, onAuthComplete }) {
+export function SubscriptionScreen({ params = {}, navigate, notify, onAuthComplete, onSessionUpdate }) {
   const registrationData = params.registrationData;
   const isRegistration = Boolean(registrationData);
   const isUpgrade = Boolean(params.isUpgrade || params.mode === 'RENEW');
-  const plans = isUpgrade ? RENEWAL_PLANS : PARTNER_PLANS;
-  const [selected, setSelected] = useState(isRegistration ? 'trial_2_months' : '');
+  const isOnboarding = params.isOnboarding === true || params.isOnboarding === 'true';
+  const showFreeOnboarding = isOnboarding && !isRegistration;
+  const paidPlans = isUpgrade ? RENEWAL_PLANS : PARTNER_PLANS;
+  const plans = showFreeOnboarding ? [FREE_ONBOARDING_PLAN, ...paidPlans] : paidPlans;
+  const [selected, setSelected] = useState(() => showFreeOnboarding ? FREE_ONBOARDING_PLAN.id : isRegistration ? 'trial_2_months' : '');
   const [loading, setLoading] = useState(false);
+
   const processPayment = async plan => {
     const paymentKey = import.meta.env.VITE_RAZORPAY_KEY_ID || 'rzp_live_ST8yVm3RaFMiHW';
     let order;
-    try { const response = await api.createPaymentOrder({ amount: plan.price, currency: 'INR' }); order = response?.order; } catch (error) { notify?.('error', getErrorMessage(error, 'Could not create payment order.')); return null; }
-    if (!window.Razorpay || !order) { notify?.('error', 'Payment gateway is unavailable. Please try again in a moment.'); return null; }
-    return new Promise(resolve => { const razorpay = new window.Razorpay({ key: paymentKey, amount: Number(plan.price) * 100, currency: 'INR', name: 'MyNaai', description: 'Salon partner subscription', order_id: order.id, theme: { color: GOLD }, prefill: { name: registrationData?.ownerName || '', contact: registrationData?.phoneNumber || '' }, handler: payment => resolve({ ...payment, orderId: payment.razorpay_order_id || order.id, paymentId: payment.razorpay_payment_id, signature: payment.razorpay_signature }) }); razorpay.on('payment.failed', () => resolve(null)); razorpay.open(); });
+    try {
+      const response = await api.createPaymentOrder({ amount: plan.price, currency: 'INR' });
+      order = response?.order;
+    } catch (error) {
+      notify?.('error', getErrorMessage(error, 'Could not create payment order.'));
+      return null;
+    }
+    if (!window.Razorpay || !order?.id) {
+      notify?.('error', 'Payment gateway is unavailable. Please try again in a moment.');
+      return null;
+    }
+    return new Promise(resolve => {
+      let settled = false;
+      const finish = value => {
+        if (settled) return;
+        settled = true;
+        resolve(value);
+      };
+      const razorpay = new window.Razorpay({
+        key: paymentKey,
+        amount: Number(plan.price) * 100,
+        currency: 'INR',
+        name: 'MyNaai',
+        description: 'Salon partner subscription',
+        order_id: order.id,
+        theme: { color: GOLD },
+        prefill: { name: registrationData?.ownerName || '', contact: registrationData?.phoneNumber || '' },
+        handler: payment => finish({
+          ...payment,
+          orderId: payment.razorpay_order_id || order.id,
+          paymentId: payment.razorpay_payment_id,
+          signature: payment.razorpay_signature,
+        }),
+        modal: { ondismiss: () => finish(null) },
+      });
+      razorpay.on('payment.failed', () => finish(null));
+      razorpay.open();
+    });
   };
+
+  const completeFreeOnboarding = () => {
+    localStorage.setItem('isNewSalon', 'false');
+    onSessionUpdate?.({}, { isNewSalon: false });
+    notify?.('success', 'Your free trial is ready. Welcome to MyNaai.');
+    navigate('queue', {}, { replace: true });
+  };
+
   const continuePlan = async () => {
     const plan = plans.find(item => item.id === selected);
     if (!plan) return notify?.('error', 'Please choose a plan to continue.');
+    if (showFreeOnboarding && plan.id === FREE_ONBOARDING_PLAN.id) return completeFreeOnboarding();
     if (isRegistration && !String(registrationData?.deviceToken || '').trim()) return notify?.('error', 'Browser notifications must be enabled before salon registration can continue.');
     setLoading(true);
     try {
       if (isRegistration) {
-        if (registrationData.tempToken) setToken(registrationData.tempToken);
+        if (!String(registrationData?.tempToken || '').trim()) throw new Error('Salon verification expired. Please sign in again.');
+        // The OTP endpoint returns a temporary authorization token. Keep it only
+        // for the create-salon request; the completed response must return the
+        // persisted salon session that is used by the portal afterwards.
+        setToken(registrationData.tempToken);
         let payment = { paymentId: 'web_free_trial', orderId: '', signature: '' };
-        if (plan.price > 0) { payment = await processPayment(plan); if (!payment) return; }
-        const response = await api.createSalon({ ...registrationData, planType: plan.id, paymentId: payment.paymentId, orderId: payment.orderId, signature: payment.signature });
-        if (response?.status && response.status !== 'SUCCESS') throw new Error(response.message || 'Salon registration failed');
-        const createdSalonId = response.salonId || response.data?.salonId;
-        const user = { salon: { salonId: createdSalonId }, salonId: createdSalonId, ownerName: registrationData.ownerName, salonName: registrationData.salonName };
-        onAuthComplete?.({ role: 'SALON', token: response.token || response.data?.token, user, userId: createdSalonId, isNewSalon: false });
+        if (plan.price > 0) {
+          payment = await processPayment(plan);
+          if (!payment?.paymentId) return;
+          if (!payment.orderId || !payment.signature) throw new Error('Payment could not be verified. Please try again.');
+        }
+        const response = await api.createSalon({
+          ...registrationData,
+          planType: plan.id,
+          paymentId: payment.paymentId,
+          orderId: payment.orderId,
+          signature: payment.signature,
+        }, {
+          headers: { Authorization: `Bearer ${registrationData.tempToken}` },
+        });
+        if (response?.status !== 'SUCCESS') throw new Error(response?.message || 'Salon registration failed.');
+        const token = response.token || response.data?.token;
+        if (!token) throw new Error('Salon registration completed without a login session. Please try again.');
+        const createdSalonId = response.salonId || response.data?.salonId || response.salon?.salonId || response.data?.salon?.salonId;
+        if (!createdSalonId) throw new Error('Salon registration completed without a salon ID. Please try again.');
+        const user = {
+          ...registrationData,
+          salonId: createdSalonId,
+          salon: { ...(registrationData.salon || {}), salonId: createdSalonId },
+          isNewSalon: false,
+          profileCompleted: true,
+        };
+        delete user.tempToken;
+        onAuthComplete?.({ role: 'SALON', token, user, userId: createdSalonId, isNewSalon: false });
         return;
       }
       const payment = await processPayment(plan);
-      if (!payment) return;
+      if (!payment?.paymentId) return;
       const response = await api.renewSalon({ planType: plan.id, paymentId: payment.paymentId, totalAmount: plan.price });
-      if (response?.status && response.status !== 'SUCCESS') throw new Error(response.message || 'Renewal failed');
-      notify?.('success', 'Plan renewed successfully.'); navigate('account');
-    } catch (error) { notify?.('error', getErrorMessage(error, 'Payment process failed.')); } finally { setLoading(false); }
+      if (response?.status !== 'SUCCESS') throw new Error(response?.message || 'Renewal failed.');
+      notify?.('success', 'Plan renewed successfully.');
+      navigate('account', {}, { replace: true });
+    } catch (error) {
+      notify?.('error', getErrorMessage(error, 'Payment process failed.'));
+    } finally { setLoading(false); }
   };
-  return <div className="screen subscription-screen"><PageHeader title={isUpgrade ? 'Renew your plan' : 'Choose your plan'} subtitle={isUpgrade ? 'Keep your salon visible and ready for bookings.' : 'Start building your salon presence on MyNaai.'} onBack={isRegistration ? params.onBack : () => navigate(-1)} /><div className="subscription-intro"><div className="subscription-mark"><Crown size={21} /></div><div><strong>{isUpgrade ? 'Keep the momentum going' : 'Simple plans for growing salons'}</strong><p>No confusing tiers. Pick what fits your business today.</p></div></div><div className="plan-grid">{plans.map(plan => <button className={cx('plan-card', selected === plan.id && 'active')} key={plan.id} onClick={() => setSelected(plan.id)} disabled={loading}>{plan.best && <span className="plan-best">BEST VALUE</span>}<span className="plan-radio">{selected === plan.id && <Check size={13} />}</span><span className="plan-card-title">{plan.title}</span><strong>{formatCurrency(plan.price)}</strong><span>{plan.duration}</span><small>{plan.note}</small></button>)}</div><div className="plan-benefits"><span><CheckCircle2 size={15} /> Be discoverable nearby</span><span><CheckCircle2 size={15} /> Manage your live queue</span><span><CheckCircle2 size={15} /> Get booking updates</span></div><Button className="subscription-continue" onClick={continuePlan} loading={loading}>{isUpgrade ? 'Renew plan' : 'Continue to payment'} <ArrowRightIcon /></Button>{!isRegistration && <p className="secure-payment"><WalletCards size={14} /> Secure payments powered by Razorpay</p>}</div>;
+
+  const handleBack = isRegistration
+    ? params.onBack
+    : isOnboarding
+      ? () => navigate('queue', {}, { replace: true })
+      : () => navigate(-1);
+  return <div className="screen subscription-screen"><PageHeader title={isUpgrade ? 'Renew your plan' : 'Choose your plan'} subtitle={isOnboarding ? 'Choose how you want to start your salon journey.' : isUpgrade ? 'Keep your salon visible and ready for bookings.' : 'Start building your salon presence on MyNaai.'} onBack={handleBack} /><div className="subscription-intro"><div className="subscription-mark"><Crown size={21} /></div><div><strong>{isOnboarding ? 'Your salon is ready for a final choice' : isUpgrade ? 'Keep the momentum going' : 'Simple plans for growing salons'}</strong><p>{isOnboarding ? 'Start with a 20-day free trial or choose a paid plan.' : 'No confusing tiers. Pick what fits your business today.'}</p></div></div><div className="plan-grid">{plans.map(plan => <button className={cx('plan-card', selected === plan.id && 'active')} key={plan.id} onClick={() => setSelected(plan.id)} disabled={loading}>{plan.best && <span className="plan-best">{plan.id === FREE_ONBOARDING_PLAN.id ? 'DEFAULT' : 'BEST VALUE'}</span>}<span className="plan-radio">{selected === plan.id && <Check size={13} />}</span><span className="plan-card-title">{plan.title}</span><strong>{plan.displayPrice || formatCurrency(plan.price)}</strong><span>{plan.duration}</span><small>{plan.note}</small></button>)}</div><div className="plan-benefits"><span><CheckCircle2 size={15} /> Be discoverable nearby</span><span><CheckCircle2 size={15} /> Manage your live queue</span><span><CheckCircle2 size={15} /> Get booking updates</span></div><Button className="subscription-continue" onClick={continuePlan} loading={loading}>{isOnboarding && selected === FREE_ONBOARDING_PLAN.id ? 'Start free trial' : isUpgrade ? 'Renew plan' : 'Continue to payment'} <ArrowRightIcon /></Button>{!isOnboarding && <p className="secure-payment"><WalletCards size={14} /> Secure payments powered by Razorpay</p>}</div>;
 }
 
 function ArrowRightIcon() { return <ChevronRight size={17} />; }

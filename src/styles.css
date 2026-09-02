@@ -170,11 +170,6 @@ img { display: block; max-width: 100%; }
 .auth-divider { position: relative; display: flex; align-items: center; margin: 27px 0 18px; color: #616a69; font-size: 12px; }
 .auth-divider::before, .auth-divider::after { content: ''; flex: 1; height: 1px; background: var(--line); }
 .auth-divider span { padding: 0 12px; }
-.auth-flow-links { display: flex; flex-direction: column; gap: 8px; }
-.partner-link { display: block; width: 100%; margin-top: 23px; color: var(--muted); background: transparent; font-size: 12px; text-align: center; }
-.auth-flow-links .partner-link { margin-top: 23px; }
-.auth-flow-links .partner-link.secondary { margin-top: 0; color: #78807e; font-size: 11px; }
-.partner-link strong { color: var(--gold); }
 .auth-legal { max-width: 350px; margin: auto auto 0; color: #59605f; font-size: 10px; line-height: 1.5; text-align: center; }
 .registration-page { min-height: 100svh; padding: 20px; background: radial-gradient(circle at 100% 0%, rgba(232,185,126,.1), transparent 34%), var(--black); }
 .registration-back { width: 100%; max-width: 540px; margin: 0 auto; display: flex; align-items: center; gap: 13px; }

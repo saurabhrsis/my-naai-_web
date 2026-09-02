@@ -56,7 +56,7 @@ Real customer and salon authentication is blocked until Firebase Web Push return
 
 ### Incomplete salon profile guard
 
-After salon login, `isNewSalon` or `profileCompleted: false` routes to **Complete salon profile** before the queue/dashboard is rendered. The editor requires owner/salon/contact/type/address information, valid services and specialists, browser coordinates, and valid hours. A successful update clears the incomplete flag and only then permits normal salon navigation.
+After salon login, `isNewSalon` or `profileCompleted: false` routes to **Complete salon profile** before the queue/dashboard is rendered. The editor requires owner/salon/contact/type/address information, valid services and specialists, browser coordinates, and valid hours. A successful update clears the incomplete flag and moves the partner to the subscription choice before normal salon navigation.
 
 ## 4. Salon queue changes
 
@@ -100,7 +100,17 @@ The web editor sends the same complete body shape used by the mobile salon edito
 
 New services and specialists intentionally omit their IDs; existing records retain `serviceId`/`barberId`. The editor preserves the schedule ID and break times, and refuses to submit missing/invalid coordinates or malformed contact, service, barber and time values.
 
-## 6. Salon time update and customer notification
+## 6. Salon subscriptions and onboarding
+
+The subscription route follows the mobile `SubscriptionsPlan` contract:
+
+- An incomplete, already-created salon is sent to the profile editor first. After a successful profile save, the partner sees the default **20-day free trial** choice and can start it without opening Razorpay. The editor clears the incomplete-session flag while keeping the partner on the subscription route; the free-plan action then refreshes the authenticated hash route into the salon queue.
+- A new salon reaches the same route after registration OTP, with the temporary token returned by `verify-otp-register`. Paid plans first call `POST /api/salons/create-payment-order` with the plan amount in INR, open Razorpay Checkout with the returned order ID, and send the payment ID, order ID and signature to `POST /api/salons/create-salon-with-plan` with the temporary bearer authorization. The response must contain both a salon ID and a permanent session token; otherwise the portal does not mark registration as complete.
+- A logged-in partner can choose a renewal plan from the account subscription entry. The browser creates the Razorpay order and sends `{ planType, paymentId, totalAmount }` to `POST /api/salons/renew-salon-plan` with the persisted salon session. A successful renewal returns to the partner account without replacing the session with a temporary token.
+
+The public Razorpay key is read from `VITE_RAZORPAY_KEY_ID` (with the mobile app's configured live key as the production fallback); no secret is placed in the browser. The payment order and subscription endpoints remain in `src/lib/api.js` with the mobile method names and bearer/body contracts.
+
+## 7. Salon time update and customer notification
 
 When a salon cannot start a booking at the selected time, the salon can open the booking request and choose **Update time**. The web flow offers:
 
@@ -129,7 +139,7 @@ The customer can receive the delay notification in the background or while the p
 3. The response calls `POST /api/bookingRequest/customer-delay-response/{bookingRequestId}/` with `{ "action": "ACCEPT" }` or `{ "action": "REJECT" }`.
 4. The customer is returned to `#/bookings`.
 
-## 7. Notification destinations
+## 8. Notification destinations
 
 The notification route mapping is shared by foreground JavaScript and the Firebase messaging service worker:
 
@@ -144,7 +154,7 @@ The notification route mapping is shared by foreground JavaScript and the Fireba
 
 Hash query parameters are parsed by `App.jsx`, so a notification click remains actionable after a cold start or browser restart. See [FIREBASE-WEB-PUSH.md](./FIREBASE-WEB-PUSH.md) for Firebase setup and payload details.
 
-## 8. PWA service workers
+## 9. PWA service workers
 
 Two workers have separate responsibilities and scopes:
 
@@ -153,7 +163,7 @@ Two workers have separate responsibilities and scopes:
 
 They must not be merged into one worker or registered with the same scope. The PWA install prompt is captured by the app and offered during onboarding/authentication and from the workspace sidebar when the browser supports it.
 
-## 9. Important source locations
+## 10. Important source locations
 
 | File | Responsibility |
 | --- | --- |
@@ -166,7 +176,7 @@ They must not be merged into one worker or registered with the same scope. The P
 | `src/main.jsx` | Root offline shell worker registration |
 | `src/styles.css` | Responsive mobile-first layout through large desktop widths |
 
-## 10. Validation checklist
+## 11. Validation checklist
 
 Before deployment:
 
