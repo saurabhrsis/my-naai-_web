@@ -82,7 +82,7 @@ function saveSession(session) {
   return { ...session, role, userId: session.userId || user?.userId || user?.salon?.salonId || user?.salonId || user?.id || '' };
 }
 
-const PUSH_REQUIRED_MESSAGE = 'Browser notifications are required to sign in. Configure Firebase Web Push, allow notifications, then reload the page.';
+const PUSH_REQUIRED_MESSAGE = 'Browser notifications are required to sign in. Add the Firebase Web config and VITE_FIREBASE_VAPID_KEY, allow notifications, then reload the page.';
 
 async function requirePushToken() {
   const token = await getPushToken({ requestPermission: true });
