@@ -26,9 +26,9 @@ const commonServices = [
 ];
 
 const demoBarbers = [
-  { barberId: 'barber-rohan', fullName: 'Rohan Deshmukh', profileImageUrl: 'naai/barber1.jpeg', isAvailable: true, ratingAverage: '4.9' },
-  { barberId: 'barber-maya', fullName: 'Maya Kapoor', profileImageUrl: 'naai/barber4.jpeg', isAvailable: true, ratingAverage: '4.8' },
-  { barberId: 'barber-vikram', fullName: 'Vikram Rao', profileImageUrl: 'naai/barber2.jpeg', isAvailable: false, ratingAverage: '4.7' },
+  { barberId: 'barber-rohan', fullName: 'Rohan Deshmukh', profileImageUrl: '/assets/naai/barber1.jpeg', isAvailable: true, ratingAverage: '4.9' },
+  { barberId: 'barber-maya', fullName: 'Maya Kapoor', profileImageUrl: '/assets/naai/barber4.jpeg', isAvailable: true, ratingAverage: '4.8' },
+  { barberId: 'barber-vikram', fullName: 'Vikram Rao', profileImageUrl: '/assets/naai/barber2.jpeg', isAvailable: false, ratingAverage: '4.7' },
 ];
 
 export const DEMO_SALONS = [
@@ -43,8 +43,8 @@ export const DEMO_SALONS = [
     phoneNumber: '8380017393',
     latitude: 21.1458,
     longitude: 79.0882,
-    imageUrl: 'naai/salon1.jpg',
-    imagesArray: ['naai/salon1.jpg', 'naai/naai2.jpeg', 'naai/naai3.jpg'],
+    imageUrl: '/assets/naai/salon1.jpg',
+    imagesArray: ['/assets/naai/salon1.jpg', '/assets/naai/naai2.jpeg', '/assets/naai/naai3.jpg'],
     businessHours: hours('09:00:00', '21:30:00'),
     totalWaitTime: { display: '10–15 min' },
     services: commonServices,
@@ -62,8 +62,8 @@ export const DEMO_SALONS = [
     phoneNumber: '8380017394',
     latitude: 21.1346,
     longitude: 79.0791,
-    imageUrl: 'naai/naai1.jpg',
-    imagesArray: ['naai/naai1.jpg', 'naai/barber3.jpg'],
+    imageUrl: '/assets/naai/naai1.jpg',
+    imagesArray: ['/assets/naai/naai1.jpg', '/assets/naai/barber3.jpg'],
     businessHours: hours('10:00:00', '20:00:00'),
     totalWaitTime: { display: '20–25 min' },
     services: commonServices.slice(0, 4),
@@ -81,8 +81,8 @@ export const DEMO_SALONS = [
     phoneNumber: '8380017395',
     latitude: 21.1177,
     longitude: 79.0513,
-    imageUrl: 'naai/ad3.jpg',
-    imagesArray: ['naai/ad3.jpg', 'naai/naai2.jpeg'],
+    imageUrl: '/assets/naai/ad3.jpg',
+    imagesArray: ['/assets/naai/ad3.jpg', '/assets/naai/naai2.jpeg'],
     businessHours: hours('09:30:00', '19:30:00', ['Sunday']),
     totalWaitTime: { display: '5–10 min' },
     services: [commonServices[4], commonServices[5], commonServices[0], commonServices[3]],
@@ -100,8 +100,8 @@ export const DEMO_SALONS = [
     phoneNumber: '8380017396',
     latitude: 21.1681,
     longitude: 79.0748,
-    imageUrl: 'naai/ad2.jpg',
-    imagesArray: ['naai/ad2.jpg'],
+    imageUrl: '/assets/naai/ad2.jpg',
+    imagesArray: ['/assets/naai/ad2.jpg'],
     businessHours: hours('08:30:00', '19:00:00'),
     totalWaitTime: { display: '15–20 min' },
     services: commonServices.slice(0, 5),
@@ -140,10 +140,10 @@ export const DEMO_BOOKINGS = [
 ];
 
 export const DEMO_PRODUCTS = [
-  { productId: 'product-1', productName: 'Matte Clay Pomade', price: '499', rating: '4.8', isAvailable: true, productImage: 'naai/barber5.jpg', salon: { salonName: 'Atelier 17 Grooming' } },
-  { productId: 'product-2', productName: 'Hydrating Beard Oil', price: '349', rating: '4.7', isAvailable: true, productImage: 'naai/barber2.jpeg', salon: { salonName: 'House of Fade' } },
-  { productId: 'product-3', productName: 'Daily Repair Shampoo', price: '699', rating: '4.6', isAvailable: true, productImage: 'naai/ad2.jpg', salon: { salonName: 'Studio Rose Beauty' } },
-  { productId: 'product-4', productName: 'Texturising Sea Salt Spray', price: '599', rating: '4.5', isAvailable: false, productImage: 'naai/ad1.jpg', salon: { salonName: 'Northside Studio' } },
+  { productId: 'product-1', productName: 'Matte Clay Pomade', price: '499', rating: '4.8', isAvailable: true, productImage: '/assets/naai/barber5.jpg', salon: { salonName: 'Atelier 17 Grooming' } },
+  { productId: 'product-2', productName: 'Hydrating Beard Oil', price: '349', rating: '4.7', isAvailable: true, productImage: '/assets/naai/barber2.jpeg', salon: { salonName: 'House of Fade' } },
+  { productId: 'product-3', productName: 'Daily Repair Shampoo', price: '699', rating: '4.6', isAvailable: true, productImage: '/assets/naai/ad2.jpg', salon: { salonName: 'Studio Rose Beauty' } },
+  { productId: 'product-4', productName: 'Texturising Sea Salt Spray', price: '599', rating: '4.5', isAvailable: false, productImage: '/assets/naai/ad1.jpg', salon: { salonName: 'Northside Studio' } },
 ];
 
 export const DEMO_QUEUE = [
@@ -173,8 +173,8 @@ export const DEMO_SALON_PROFILE = {
   city: 'Nagpur',
   genderType: 'UNISEX',
   phoneNumber: '8380017393',
-  imageUrl: 'naai/salon1.jpg',
-  imagesArray: ['naai/salon1.jpg', 'naai/naai2.jpeg', 'naai/naai3.jpg'],
+  imageUrl: '/assets/naai/salon1.jpg',
+  imagesArray: ['/assets/naai/salon1.jpg', '/assets/naai/naai2.jpeg', '/assets/naai/naai3.jpg'],
   latitude: 21.1458,
   longitude: 79.0882,
   ratingAverage: '4.9',
