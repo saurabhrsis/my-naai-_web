@@ -165,11 +165,15 @@ img { display: block; max-width: 100%; }
 .form-error { display: flex; align-items: flex-start; gap: 8px; margin: 0 0 16px; padding: 11px 12px; color: #ffc2bd; background: rgba(242, 123, 116, .09); border: 1px solid rgba(242, 123, 116, .22); border-radius: 11px; font-size: 12px; line-height: 1.4; }
 .resend-link, .back-form-link { display: block; width: 100%; background: transparent; color: var(--gold); text-align: center; font-size: 12px; font-weight: 700; }
 .resend-link { margin-top: 18px; }
+.resend-link:disabled { color: #68716f; cursor: not-allowed; }
 .back-form-link { margin-top: 17px; color: var(--muted); font-weight: 500; }
 .auth-divider { position: relative; display: flex; align-items: center; margin: 27px 0 18px; color: #616a69; font-size: 12px; }
 .auth-divider::before, .auth-divider::after { content: ''; flex: 1; height: 1px; background: var(--line); }
 .auth-divider span { padding: 0 12px; }
+.auth-flow-links { display: flex; flex-direction: column; gap: 8px; }
 .partner-link { display: block; width: 100%; margin-top: 23px; color: var(--muted); background: transparent; font-size: 12px; text-align: center; }
+.auth-flow-links .partner-link { margin-top: 23px; }
+.auth-flow-links .partner-link.secondary { margin-top: 0; color: #78807e; font-size: 11px; }
 .partner-link strong { color: var(--gold); }
 .auth-legal { max-width: 350px; margin: auto auto 0; color: #59605f; font-size: 10px; line-height: 1.5; text-align: center; }
 .registration-page { min-height: 100svh; padding: 20px; background: radial-gradient(circle at 100% 0%, rgba(232,185,126,.1), transparent 34%), var(--black); }
@@ -568,6 +572,8 @@ img { display: block; max-width: 100%; }
 .editor-photo, .add-photo { position: relative; min-height: 92px; overflow: hidden; border-radius: 12px; background: #242a29; }
 .editor-photo img { width: 100%; height: 100%; min-height: 92px; object-fit: cover; }
 .editor-photo button { position: absolute; top: 5px; right: 5px; width: 23px; height: 23px; display: flex; align-items: center; justify-content: center; border-radius: 50%; color: white; background: rgba(10,10,10,.7); }
+.editor-photo-change { position: absolute; right: 5px; bottom: 5px; width: 25px; height: 25px; display: flex; align-items: center; justify-content: center; border-radius: 50%; color: #111; background: var(--gold); cursor: pointer; }
+.editor-photo-change input, .editor-barber-image input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
 .add-photo { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; border: 1px dashed rgba(232,185,126,.4); color: var(--gold); font-size: 10px; cursor: pointer; }
 .add-photo input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
 .editor-items { display: flex; flex-direction: column; gap: 9px; }
@@ -575,6 +581,9 @@ img { display: block; max-width: 100%; }
 .editor-item-title { display: flex; align-items: center; gap: 7px; margin-bottom: 9px; color: var(--gold); }
 .editor-item-title strong { min-width: 0; flex: 1; overflow: hidden; color: var(--white); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .editor-item-title > button { display: inline-flex; padding: 3px; color: var(--red); background: transparent; }
+.editor-barber-image { position: relative; width: 30px; height: 30px; display: flex; flex: none; align-items: center; justify-content: center; overflow: hidden; border-radius: 8px; color: #111; background: var(--gold); cursor: pointer; }
+.editor-barber-image img { width: 100%; height: 100%; object-fit: cover; }
+.editor-barber-image > span { position: absolute; right: 2px; bottom: 2px; width: 14px; height: 14px; display: flex; align-items: center; justify-content: center; border-radius: 50%; color: #111; background: var(--gold); }
 .editor-item input { min-height: 41px; padding: 0 10px; border-radius: 9px; background: #191e1e; font-size: 11px; }
 .editor-description { width: 100%; min-height: 58px; margin-top: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 9px; color: var(--white); background: #191e1e; font-size: 11px; resize: vertical; }
 .editor-description:focus { border-color: var(--gold); outline: none; }
@@ -591,7 +600,6 @@ img { display: block; max-width: 100%; }
 .editor-location-status.location-missing strong { color: var(--yellow); }
 .editor-address-grid { margin-top: 12px; }
 .barber-editor-item > .toggle { margin-top: 9px; }
-.mini-avatar { width: 23px; height: 23px; display: flex; align-items: center; justify-content: center; border-radius: 7px; color: #111; background: var(--gold); font-size: 8px; font-weight: 700; }
 .editor-actions { position: sticky; bottom: 8px; z-index: 5; display: flex; gap: 8px; padding: 10px; border: 1px solid rgba(232,185,126,.18); border-radius: 15px; background: rgba(19,23,22,.94); backdrop-filter: blur(14px); }
 .editor-actions .btn { flex: 1; }
 .subscription-intro { display: flex; align-items: flex-start; gap: 11px; max-width: 670px; margin-bottom: 19px; padding: 14px; border-radius: 15px; background: var(--gold-wash); }

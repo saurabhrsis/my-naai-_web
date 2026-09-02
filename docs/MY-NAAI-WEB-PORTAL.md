@@ -70,7 +70,7 @@ Queue token numbers are not shown in the portal. The queue now focuses on the cu
 
 ## 5. Salon profile update contract
 
-The web editor sends the same complete body shape used by the mobile salon editor to `POST /api/salons/update-salon`. It includes profile/contact/address fields, numeric `latitude` and `longitude`, `imageUrl`, `imagesArray`, a detailed `businessHours` array, `isActive`, `profileCompleted`, and separate service/specialist collections:
+The web editor sends the same complete body shape used by the mobile salon editor to `POST /api/salons/edit-salon-profile`. It includes profile/contact/address fields, numeric `latitude` and `longitude`, `imageUrl`, `imagesArray`, a detailed `businessHours` array, `isActive`, `profileCompleted`, and separate service/specialist collections:
 
 ```json
 {
@@ -92,7 +92,7 @@ The web editor sends the same complete body shape used by the mobile salon edito
   "newServices": [],
   "existingBarbers": [{ "barberId": "...", "fullName": "...", "profileImageUrl": null, "ratingAverage": "4.8", "isAvailable": true }],
   "newBarbers": [],
-  "businessHours": [{ "scheduleId": "...", "openingTime": "09:00:00", "closingTime": "21:00:00", "breakStartTime": null, "breakEndTime": null, "holidayDays": [] }],
+  "businessHours": [{ "scheduleId": "...", "openingTime": "09:00:00", "closingTime": "22:00:00", "breakStartTime": null, "breakEndTime": null, "holidayDays": [] }],
   "isActive": true,
   "profileCompleted": true
 }

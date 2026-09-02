@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { api, getFileUrl, setToken } from '../lib/api';
 import { DEFAULT_SERVICES } from '../lib/defaultServices';
+import { STATE_OPTIONS } from '../lib/stateOptions';
 import { SALON_ABOUT_CONTENT, SALON_FAQ_CONTENT, SALON_TERMS_CONTENT } from '../lib/salonContent';
 import { io } from 'socket.io-client';
 import {
@@ -61,6 +62,23 @@ function getList(response, keys = []) {
   if (Array.isArray(response?.data)) return response.data;
   for (const key of keys) if (Array.isArray(response?.data?.[key])) return response.data[key];
   return [];
+}
+
+function getSalonData(response) {
+  const data = response?.data?.salon || response?.data || {};
+  return {
+    ...data,
+    ...(data.profileCompleted === undefined && response?.profileCompleted !== undefined ? { profileCompleted: response.profileCompleted } : {}),
+    ...(data.isNewSalon === undefined && response?.isNewSalon !== undefined ? { isNewSalon: response.isNewSalon } : {}),
+  };
+}
+
+function salonProfileNeedsCompletion(profile = {}) {
+  if (profile.profileCompleted === false || String(profile.profileCompleted).toLowerCase() === 'false' || profile.isNewSalon === true || String(profile.isNewSalon).toLowerCase() === 'true') return true;
+  const hasProfileShape = ['salonName', 'ownerName', 'addressLine1', 'genderType', 'latitude', 'longitude', 'services', 'businessHours'].some(key => Object.prototype.hasOwnProperty.call(profile, key));
+  if (!hasProfileShape) return true;
+  const businessHours = Array.isArray(profile.businessHours) ? profile.businessHours[0] : profile.businessHours;
+  return !String(profile.ownerName || '').trim() || !String(profile.salonName || '').trim() || !String(profile.addressLine1 || '').trim() || !profile.genderType || !hasCoordinate(profile.latitude) || !hasCoordinate(profile.longitude) || !Array.isArray(profile.services) || profile.services.length === 0 || !businessHours?.openingTime || !businessHours?.closingTime;
 }
 
 function isSameDate(value, offset = 0) {
@@ -143,15 +161,63 @@ export function SalonProductsScreen({ notify }) {
   return <div className="screen salon-products-screen"><PageHeader title="Product catalog" subtitle="Manage the products customers can discover." action={<Button size="small" onClick={openAdd}><Plus size={16} /> Add product</Button>} />{loading ? <div className="product-grid">{[1, 2, 3, 4].map(item => <SkeletonCard key={item} />)}</div> : products.length ? <div className="product-grid salon-product-grid">{products.map(item => <article className="product-card salon-product-card" key={item.id}><div className="product-image-wrap"><ImageWithFallback src={item.image} fallback="/assets/naai/ad2.jpg" alt={item.name} className="product-image" /><span className={cx('stock-label', item.available ? 'in-stock' : 'out-stock')}>{item.available ? 'In stock' : 'Out of stock'}</span></div><div className="product-copy"><h3>{item.name}</h3><div className="product-price-row"><strong>{formatCurrency(item.price)}</strong><Rating value={item.rating} /></div><div className="product-manage-row"><Toggle checked={item.available} onChange={() => toggle(item)} label={item.available ? 'Available' : 'Hidden'} /><div><button className="small-icon-button" onClick={() => openEdit(item)} aria-label={`Edit ${item.name}`}><Pencil size={15} /></button><button className="small-icon-button danger" onClick={() => remove(item)} aria-label={`Delete ${item.name}`}><Trash2 size={15} /></button></div></div></div></article>)}</div> : <EmptyState icon={Package} title="No products yet" message="Add your first product to the customer shelf." action={<Button onClick={openAdd}><Plus size={16} /> Add product</Button>} />}<Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? 'Edit product' : 'Add product'}><form className="modal-form" onSubmit={save}><Field label="Product image" hint="Optional · JPG or PNG"><label className="image-upload-box">{form.preview ? <img src={form.preview} alt="Product preview" /> : <><ImagePlus size={24} /><span>Choose an image</span></>}<input type="file" accept="image/*" onChange={event => { const file = event.target.files?.[0]; if (file) setForm(current => ({ ...current, imageFile: file, preview: URL.createObjectURL(file) })); }} /></label></Field><Field label="Product name"><input value={form.productName} onChange={event => setForm(current => ({ ...current, productName: event.target.value }))} placeholder="e.g. Matte Clay Pomade" autoFocus /></Field><div className="form-two-col"><Field label="Price"><input type="number" min="0" value={form.price} onChange={event => setForm(current => ({ ...current, price: event.target.value }))} placeholder="499" /></Field><Field label="Rating"><input type="number" min="0" max="5" step="0.1" value={form.rating} onChange={event => setForm(current => ({ ...current, rating: event.target.value }))} placeholder="4.8" /></Field></div><div className="switch-form-row"><span><strong>Available for customers</strong><small>Show this product on the shelf</small></span><Toggle checked={form.isAvailable} onChange={value => setForm(current => ({ ...current, isAvailable: value }))} /></div><div className="form-actions"><Button type="button" variant="secondary" onClick={() => setModalOpen(false)}>Cancel</Button><Button type="submit" loading={saving}>{editing ? 'Save changes' : 'Add product'}</Button></div></form></Modal></div>;
 }
 
-function normalizeService(item, index) { const id = item.serviceId || item.id || `new-service-${index}`; return { id, serviceId: id, name: item.serviceName || item.name || '', price: item.price === undefined || item.price === null ? '' : String(item.price), duration: String(item.durationMinutes ?? item.duration ?? 30), description: item.description || '' }; }
-function normalizeBarber(item, index) { const id = item.barberId || item.id || `new-barber-${index}`; return { id, barberId: id, name: item.fullName || item.name || '', image: item.profileImageUrl || item.image || '', rating: item.ratingAverage ?? item.rating ?? '0.0', isAvailable: item.isAvailable ?? true }; }
+const MAX_IMAGE_MB = 2;
+const MAX_IMAGES = 4;
+
+function normalizeService(item = {}, index = 0) {
+  const id = item.serviceId || item.id || `new-service-${Date.now()}-${index}`;
+  return {
+    id,
+    serviceId: item.serviceId || null,
+    name: textValue(item.serviceName || item.name),
+    price: item.price === undefined || item.price === null ? '' : String(item.price),
+    duration: String(item.durationMinutes ?? item.duration ?? 60),
+    description: textValue(item.description),
+  };
+}
+
+function normalizeBarber(item = {}, index = 0) {
+  const id = item.barberId || item.id || `new-barber-${Date.now()}-${index}`;
+  return {
+    id,
+    barberId: item.barberId || null,
+    name: textValue(item.fullName || item.name),
+    image: textValue(item.profileImageUrl || item.image),
+    imageFile: null,
+    rating: item.ratingAverage ?? item.rating ?? '1.0',
+    isAvailable: item.isAvailable ?? true,
+  };
+}
+
+function isNewEditorRecord(id) {
+  const value = String(id || '');
+  return !value || value.startsWith('new-') || value.startsWith('existing-');
+}
+
+function textValue(value) {
+  return value === null || value === undefined ? '' : String(value);
+}
+
+function normalizeRemoteImagePath(value) {
+  if (!value || typeof value !== 'string') return '';
+  const image = value.trim();
+  if (image.startsWith('/assets/')) return image;
+  const filesIndex = image.indexOf('/getFiles/');
+  if (filesIndex >= 0) return image.slice(filesIndex + '/getFiles/'.length).replace(/^\/+/, '');
+  return image.replace(/^\/+/, '');
+}
+
+function getProfileImages(profile = {}) {
+  const values = Array.isArray(profile.imagesArray) ? profile.imagesArray : profile.imageUrl ? [profile.imageUrl] : [];
+  return values.filter(Boolean).slice(0, MAX_IMAGES).map(image => typeof image === 'string' ? normalizeRemoteImagePath(image) : image);
+}
 
 export function SalonAccountScreen({ session, navigate, notify, onSessionUpdate }) {
   const initialProfile = { ...(session.user || {}), ...(session.user?.salon || {}) };
   const [profile, setProfile] = useState(initialProfile);
   const [loading, setLoading] = useState(true);
   const [isOpen, setIsOpen] = useState(Boolean(initialProfile.isOpen));
-  const load = useCallback(async () => { setLoading(true); try { const response = await api.salonProfile({ salonId: session.userId }); if (response?.status === 'SUCCESS') { const data = response.data || {}; setProfile(data); setIsOpen(getSalonStatus(data.businessHours, data.isOpen).isOpen); const incomplete = data.profileCompleted === false; onSessionUpdate?.(data, incomplete ? { isNewSalon: true } : undefined); if (incomplete) navigate('editProfile', { isOnboarding: 'true' }, { replace: true }); } } catch (error) { notify?.('error', getErrorMessage(error, 'Unable to load salon profile.')); } finally { setLoading(false); } }, [navigate, notify, onSessionUpdate, session.userId]);
+  const load = useCallback(async () => { setLoading(true); try { const response = await api.salonProfile({ salonId: session.userId }); if (response?.status === 'SUCCESS') { const data = getSalonData(response); setProfile(data); setIsOpen(getSalonStatus(data.businessHours, data.isOpen).isOpen); const incomplete = salonProfileNeedsCompletion(data); onSessionUpdate?.(data, incomplete ? { isNewSalon: true } : { isNewSalon: false }); if (incomplete) navigate('editProfile', { isOnboarding: 'true' }, { replace: true }); } } catch (error) { notify?.('error', getErrorMessage(error, 'Unable to load salon profile.')); } finally { setLoading(false); } }, [navigate, notify, onSessionUpdate, session.userId]);
   useEffect(() => { load(); }, [load]);
   const toggleOpen = async () => { const next = !isOpen; setIsOpen(next); try { const response = await api.SalonOpenClose({ salonId: session.userId, isOpen: next }); if (response?.status && response.status !== 'SUCCESS') throw new Error(response.message || 'Could not update status'); notify?.('success', next ? 'Salon is now open.' : 'Salon is now closed.'); } catch (error) { setIsOpen(!next); notify?.('error', getErrorMessage(error, 'Could not update salon status.')); } };
   if (loading) return <div className="screen salon-account-screen"><PageHeader title="Salon account" /><div className="account-loading"><Spinner label="Loading salon profile…" /></div></div>;
@@ -177,87 +243,91 @@ function apiTime(value) {
   return `${String(value || '09:00').slice(0, 5)}:00`;
 }
 
-function isNewEditorRecord(id) {
-  const value = String(id || '');
-  return !value || value.startsWith('new-') || value.startsWith('existing-');
-}
-
 export function EditSalonProfileScreen({ params, session, navigate, notify, onSessionUpdate }) {
   const routeProfile = params?.profileData && typeof params.profileData === 'object' ? params.profileData : null;
   const initial = routeProfile || { ...(session.user || {}), ...(session.user?.salon || {}) };
   const isOnboarding = params?.isOnboarding === true || params?.isOnboarding === 'true' || session.isNewSalon;
-  const salonId = session.userId || initial.salonId || initial.salon?.salonId || '';
+  const salonId = params?.salonId || session.userId || initial.salonId || initial.salon?.salonId || '';
   const [profile, setProfile] = useState(initial);
-  const [salonName, setSalonName] = useState(initial.salonName || '');
-  const [ownerName, setOwnerName] = useState(initial.ownerName || '');
-  const [phoneNumber, setPhoneNumber] = useState(initial.phoneNumber || '');
-  const [email, setEmail] = useState(initial.email || '');
-  const [addressLine1, setAddressLine1] = useState(initial.addressLine1 || initial.address || '');
-  const [addressLine2, setAddressLine2] = useState(initial.addressLine2 || '');
-  const [city, setCity] = useState(initial.city || '');
-  const [state, setState] = useState(initial.state || '');
-  const [pincode, setPincode] = useState(initial.pincode === undefined || initial.pincode === null ? '' : String(initial.pincode));
+  const [salonName, setSalonName] = useState(textValue(initial.salonName));
+  const [ownerName, setOwnerName] = useState(textValue(initial.ownerName));
+  const [phoneNumber, setPhoneNumber] = useState(textValue(initial.phoneNumber));
+  const [email, setEmail] = useState(textValue(initial.email));
+  const [addressLine1, setAddressLine1] = useState(textValue(initial.addressLine1 || initial.address));
+  const [addressLine2, setAddressLine2] = useState(textValue(initial.addressLine2));
+  const [city, setCity] = useState(textValue(initial.city));
+  const [state, setState] = useState(textValue(initial.state));
+  const [pincode, setPincode] = useState(textValue(initial.pincode));
   const [genderType, setGenderType] = useState(String(initial.genderType || '').toUpperCase());
-  const [agentCode, setAgentCode] = useState(initial.agentCode || '');
+  const [agentCode, setAgentCode] = useState(textValue(initial.agentCode));
   const [latitude, setLatitude] = useState(hasCoordinate(initial.latitude) ? Number(initial.latitude) : null);
   const [longitude, setLongitude] = useState(hasCoordinate(initial.longitude) ? Number(initial.longitude) : null);
   const initialHour = getEditorBusinessHour(initial.businessHours);
   const [openTime, setOpenTime] = useState(editorTime(initialHour.openingTime, '09:00'));
-  const [closeTime, setCloseTime] = useState(editorTime(initialHour.closingTime, '21:00'));
+  const [closeTime, setCloseTime] = useState(editorTime(initialHour.closingTime, '22:00'));
   const initialHoliday = initialHour.holidayDays?.[0];
   const [holiday, setHoliday] = useState(initialHoliday === undefined || initialHoliday === null || initialHoliday === '' ? '' : String(initialHoliday));
-  const [images, setImages] = useState((initial.imagesArray || (initial.imageUrl ? [initial.imageUrl] : [])).filter(Boolean).slice(0, 4));
+  const [images, setImages] = useState(getProfileImages(initial));
   const [services, setServices] = useState((initial.services || []).map(normalizeService));
   const [barbers, setBarbers] = useState((initial.barbers || []).map(normalizeBarber));
   const [isActive, setIsActive] = useState(initial.isActive !== false);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(!routeProfile);
   const [locationLoading, setLocationLoading] = useState(false);
+  const [locationVerified, setLocationVerified] = useState(false);
   const [locationError, setLocationError] = useState('');
 
   const populate = useCallback(data => {
     const next = data || {};
     const businessHour = getEditorBusinessHour(next.businessHours);
     setProfile(next);
-    setSalonName(next.salonName || '');
-    setOwnerName(next.ownerName || '');
-    setPhoneNumber(next.phoneNumber || '');
-    setEmail(next.email || '');
-    setAddressLine1(next.addressLine1 || next.address || '');
-    setAddressLine2(next.addressLine2 || '');
-    setCity(next.city || '');
-    setState(next.state || '');
-    setPincode(next.pincode === undefined || next.pincode === null ? '' : String(next.pincode));
+    setSalonName(textValue(next.salonName));
+    setOwnerName(textValue(next.ownerName));
+    setPhoneNumber(textValue(next.phoneNumber));
+    setEmail(textValue(next.email));
+    setAddressLine1(textValue(next.addressLine1 || next.address));
+    setAddressLine2(textValue(next.addressLine2));
+    setCity(textValue(next.city));
+    setState(textValue(next.state));
+    setPincode(textValue(next.pincode));
     setGenderType(String(next.genderType || '').toUpperCase());
-    setAgentCode(next.agentCode || '');
+    setAgentCode(textValue(next.agentCode));
     setLatitude(hasCoordinate(next.latitude) ? Number(next.latitude) : null);
     setLongitude(hasCoordinate(next.longitude) ? Number(next.longitude) : null);
     setOpenTime(editorTime(businessHour.openingTime, '09:00'));
-    setCloseTime(editorTime(businessHour.closingTime, '21:00'));
+    setCloseTime(editorTime(businessHour.closingTime, '22:00'));
     const nextHoliday = businessHour.holidayDays?.[0];
     setHoliday(nextHoliday === undefined || nextHoliday === null || nextHoliday === '' ? '' : String(nextHoliday));
-    setImages((next.imagesArray || (next.imageUrl ? [next.imageUrl] : [])).filter(Boolean).slice(0, 4));
+    setImages(getProfileImages(next));
     setServices((next.services || []).map(normalizeService));
     setBarbers((next.barbers || []).map(normalizeBarber));
     setIsActive(next.isActive !== false);
   }, []);
 
-  useEffect(() => {
-    if (routeProfile) return undefined;
-    let active = true;
+  const refreshProfile = useCallback(async () => {
+    if (!salonId) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
-    api.salonProfile({ salonId }).then(response => {
-      if (!active) return;
+    try {
+      const response = await api.salonProfile({ salonId });
       if (response?.status !== 'SUCCESS') throw new Error(response?.message || 'Unable to load profile.');
-      populate(response.data);
-    }).catch(error => {
-      if (active) notify?.('error', getErrorMessage(error, 'Unable to load profile.'));
-    }).finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [notify, populate, routeProfile, salonId]);
+      populate(getSalonData(response));
+    } catch (error) {
+      notify?.('error', getErrorMessage(error, 'Unable to load profile.'));
+    } finally {
+      setLoading(false);
+    }
+  }, [notify, populate, salonId]);
+
+  useEffect(() => {
+    if (!routeProfile) refreshProfile();
+  }, [refreshProfile, routeProfile]);
 
   const detectLocation = useCallback(async () => {
     setLocationLoading(true);
+    setLocationVerified(false);
     setLocationError('');
     try {
       const current = await getBrowserLocation();
@@ -267,6 +337,7 @@ export function EditSalonProfileScreen({ params, session, navigate, notify, onSe
       }
       setLatitude(Number(current.latitude));
       setLongitude(Number(current.longitude));
+      setLocationVerified(true);
       setLocationError('');
     } catch (error) {
       setLocationError(getErrorMessage(error, 'Unable to detect the current salon location.'));
@@ -276,23 +347,75 @@ export function EditSalonProfileScreen({ params, session, navigate, notify, onSe
   }, []);
 
   useEffect(() => {
-    if (!loading && (!hasCoordinate(latitude) || !hasCoordinate(longitude))) detectLocation();
-  }, [detectLocation, latitude, loading, longitude]);
+    if (!loading) detectLocation();
+  }, [detectLocation, loading]);
 
+  const validateImageFile = file => {
+    if (!file) return false;
+    if (file.type && !file.type.startsWith('image/')) {
+      notify?.('error', 'Choose a JPG, PNG or other image file.');
+      return false;
+    }
+    if (file.size > MAX_IMAGE_MB * 1024 * 1024) {
+      notify?.('error', `Each salon image must be smaller than ${MAX_IMAGE_MB} MB.`);
+      return false;
+    }
+    return true;
+  };
   const addImages = event => {
-    const files = Array.from(event.target.files || []).slice(0, Math.max(0, 4 - images.length));
+    const selectedFiles = Array.from(event.target.files || []);
+    const remaining = Math.max(0, MAX_IMAGES - images.length);
+    const files = selectedFiles.filter(validateImageFile).slice(0, remaining);
+    if (selectedFiles.length > remaining) notify?.('info', `You can upload up to ${MAX_IMAGES} salon images.`);
     setImages(current => [...current, ...files.map(file => ({ file, preview: URL.createObjectURL(file) }))]);
     event.target.value = '';
   };
-  const removeImage = index => setImages(current => current.filter((_, itemIndex) => itemIndex !== index));
+  const replaceImage = (index, event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!validateImageFile(file)) return;
+    setImages(current => current.map((image, itemIndex) => {
+      if (itemIndex !== index) return image;
+      if (typeof image !== 'string' && image.preview) URL.revokeObjectURL(image.preview);
+      return { file, preview: URL.createObjectURL(file) };
+    }));
+  };
+  const removeImage = index => setImages(current => {
+    const removed = current[index];
+    if (typeof removed !== 'string' && removed?.preview) URL.revokeObjectURL(removed.preview);
+    return current.filter((_, itemIndex) => itemIndex !== index);
+  });
   const updateService = (id, key, value) => setServices(current => current.map(item => item.id === id ? { ...item, [key]: value } : item));
   const updateBarber = (id, key, value) => setBarbers(current => current.map(item => item.id === id ? { ...item, [key]: value } : item));
   const addService = () => setServices(current => [...current, normalizeService({ id: `new-service-${Date.now()}` }, current.length)]);
   const addBarber = () => setBarbers(current => [...current, normalizeBarber({ id: `new-barber-${Date.now()}` }, current.length)]);
+  const selectBarberImage = (id, event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!validateImageFile(file)) return;
+    setBarbers(current => current.map(item => {
+      if (item.id !== id) return item;
+      if (item.image?.startsWith('blob:')) URL.revokeObjectURL(item.image);
+      return { ...item, image: URL.createObjectURL(file), imageFile: file };
+    }));
+  };
+  const createDefaultEditorServices = type => {
+    const defaults = DEFAULT_SERVICES[String(type || '').toLowerCase()] || [];
+    return defaults.map((item, index) => ({ ...normalizeService(item, index), id: `new-service-${Date.now()}-${index}` }));
+  };
   const loadDefaultServices = () => {
-    const defaults = DEFAULT_SERVICES[String(genderType || '').toLowerCase()] || [];
+    const defaults = createDefaultEditorServices(genderType);
     if (!defaults.length) return notify?.('error', 'Choose a salon type before loading default services.');
-    setServices(defaults.map((item, index) => ({ ...normalizeService(item, index), id: `new-service-${Date.now()}-${index}` })));
+    if (services.length && !window.confirm('Replace the current services with the defaults for this salon type?')) return;
+    setServices(defaults);
+  };
+  const changeGenderType = event => {
+    const nextType = event.target.value;
+    const keepServices = nextType && nextType !== genderType && services.length
+      ? window.confirm('Keep the current services for the new salon type? Choose Cancel to replace them with defaults.')
+      : true;
+    setGenderType(nextType);
+    if (nextType && (!services.length || !keepServices)) setServices(createDefaultEditorServices(nextType));
   };
   const removeService = async id => {
     if (isNewEditorRecord(id)) return setServices(current => current.filter(item => item.id !== id));
@@ -305,7 +428,11 @@ export function EditSalonProfileScreen({ params, session, navigate, notify, onSe
     } catch (error) { notify?.('error', getErrorMessage(error, 'Could not delete service.')); }
   };
   const removeBarber = async id => {
-    if (isNewEditorRecord(id)) return setBarbers(current => current.filter(item => item.id !== id));
+    if (isNewEditorRecord(id)) return setBarbers(current => {
+      const removed = current.find(item => item.id === id);
+      if (removed?.image?.startsWith('blob:')) URL.revokeObjectURL(removed.image);
+      return current.filter(item => item.id !== id);
+    });
     if (!window.confirm('Delete this specialist?')) return;
     try {
       const response = await api.deleteSalonBarber(id);
@@ -316,9 +443,12 @@ export function EditSalonProfileScreen({ params, session, navigate, notify, onSe
   };
 
   const uploadImage = async image => {
-    if (!image?.file) return typeof image === 'string' ? image : '';
+    if (!image?.file) return typeof image === 'string' ? normalizeRemoteImagePath(image) : '';
     const response = await api.uploadImage(image.file);
-    return response?.url || response?.data?.url || response?.path || response?.data?.path || '';
+    if (response?.success === false || response?.data?.success === false) throw new Error(response?.message || response?.data?.message || 'Image upload failed.');
+    const path = response?.url || response?.data?.url || response?.path || response?.data?.path || '';
+    if (!path) throw new Error(response?.message || response?.data?.message || 'Image upload failed.');
+    return normalizeRemoteImagePath(path);
   };
 
   const validate = () => {
@@ -331,10 +461,10 @@ export function EditSalonProfileScreen({ params, session, navigate, notify, onSe
     if (!addressLine1.trim()) return 'Please enter the salon address.';
     if (agentCode.trim() && !/^\d{10}$/.test(agentCode.trim())) return 'Agent code must be exactly 10 digits or blank.';
     if (pincode.trim() && !/^\d{6}$/.test(pincode.trim())) return 'Pincode must contain 6 digits.';
-    if (!hasCoordinate(latitude) || !hasCoordinate(longitude) || Number(latitude) < -90 || Number(latitude) > 90 || Number(longitude) < -180 || Number(longitude) > 180) return 'Detect and save the salon location before continuing.';
+    if (!locationVerified || !hasCoordinate(latitude) || !hasCoordinate(longitude) || Number(latitude) < -90 || Number(latitude) > 90 || Number(longitude) < -180 || Number(longitude) > 180) return 'Allow location access and detect the salon location before continuing.';
     if (openTime === closeTime) return 'Opening and closing time cannot be the same.';
     if (!services.length) return 'Please add at least one salon service.';
-    if (services.some(item => !item.name.trim() || item.price === '' || Number(item.price) < 0 || !item.duration || Number(item.duration) <= 0)) return 'Enter a valid service name, price and duration for every service.';
+    if (services.some(item => !item.name.trim() || item.price === '' || !Number.isFinite(Number(item.price)) || Number(item.price) < 0 || !item.duration || !Number.isFinite(Number(item.duration)) || Number(item.duration) <= 0)) return 'Enter a valid service name, price and duration for every service.';
     if (barbers.some(item => !item.name.trim())) return 'Please enter the name of every specialist.';
     return '';
   };
@@ -363,19 +493,20 @@ export function EditSalonProfileScreen({ params, session, navigate, notify, onSe
         price: String(item.price || 0),
         description: item.description?.trim() || 'Salon service',
       }));
-      const existingBarbers = barbers.filter(item => !isNewEditorRecord(item.id)).map(item => ({
-        barberId: item.barberId || item.id,
-        fullName: item.name.trim(),
-        profileImageUrl: item.image || null,
-        ratingAverage: String(item.rating || '0.0'),
-        isAvailable: item.isAvailable !== false,
-      }));
-      const newBarbers = barbers.filter(item => isNewEditorRecord(item.id)).map(item => ({
-        fullName: item.name.trim(),
-        profileImageUrl: item.image || null,
-        ratingAverage: String(item.rating || '0.0'),
-        isAvailable: item.isAvailable !== false,
-      }));
+      const barberPayloads = [];
+      for (const item of barbers) {
+        const image = item.imageFile ? await uploadImage({ file: item.imageFile }) : normalizeRemoteImagePath(item.image);
+        barberPayloads.push({
+          id: item.id,
+          barberId: item.barberId || (!isNewEditorRecord(item.id) ? item.id : null),
+          fullName: item.name.trim(),
+          profileImageUrl: image || null,
+          ratingAverage: String(item.rating || '1.0'),
+          isAvailable: item.isAvailable !== false,
+        });
+      }
+      const existingBarbers = barberPayloads.filter(item => !isNewEditorRecord(item.id)).map(({ id, ...item }) => item);
+      const newBarbers = barberPayloads.filter(item => isNewEditorRecord(item.id)).map(({ id, barberId, ...item }) => item);
       const existingBusinessHour = getEditorBusinessHour(profile.businessHours);
       const businessHour = {
         openingTime: apiTime(openTime),
@@ -410,8 +541,8 @@ export function EditSalonProfileScreen({ params, session, navigate, notify, onSe
         isActive,
         profileCompleted: true,
       };
-      const response = await api.updateSalonProfile(payload);
-      if (response?.status && response.status !== 'SUCCESS') throw new Error(response.message || 'Could not update profile.');
+      const response = await api.editSalonProfile(payload);
+      if (response?.status !== 'SUCCESS') throw new Error(response?.message || 'Could not update profile.');
       const next = { ...profile, ...payload, services: [...existingServices, ...newServices], barbers: [...existingBarbers, ...newBarbers] };
       setProfile(next);
       localStorage.setItem('profileCompleted', 'true');
@@ -425,14 +556,15 @@ export function EditSalonProfileScreen({ params, session, navigate, notify, onSe
   };
 
   if (loading) return <div className="screen"><PageHeader title="Edit salon profile" /><div className="account-loading"><Spinner label="Loading profile…" /></div></div>;
-  const hasLocation = hasCoordinate(latitude) && hasCoordinate(longitude);
-  return <div className="screen edit-salon-screen"><PageHeader title={isOnboarding ? 'Complete salon profile' : 'Edit salon profile'} subtitle={isOnboarding ? 'Add the details customers need before you open your dashboard.' : 'Give customers a clear picture of your business.'} onBack={isOnboarding ? undefined : () => navigate(-1)} /><form className="profile-editor" onSubmit={save}>
-    <section className="editor-section"><div className="editor-section-heading"><div><span className="eyebrow">01 · BASICS</span><h2>Salon details</h2><p>These details are shown to customers and used for booking.</p></div><Store size={20} /></div><div className="form-two-col"><Field label="Salon name"><input value={salonName} onChange={event => setSalonName(event.target.value)} placeholder="Your salon name" /></Field><Field label="Owner name"><input value={ownerName} onChange={event => setOwnerName(event.target.value)} placeholder="Owner name" /></Field></div><div className="form-two-col"><Field label="Phone number"><input inputMode="numeric" value={phoneNumber} onChange={event => setPhoneNumber(event.target.value.replace(/\D/g, '').slice(0, 10))} placeholder="10-digit mobile number" /></Field><Field label="Email" hint="Optional"><input type="email" value={email} onChange={event => setEmail(event.target.value)} placeholder="owner@example.com" /></Field></div><SelectField label="Salon type" value={genderType} onChange={event => setGenderType(event.target.value)} options={[{ value: 'MALE', label: 'Male' }, { value: 'FEMALE', label: 'Female' }, { value: 'UNISEX', label: 'Unisex' }]} placeholder="Select salon type" /><Field label="Agent code" hint="Optional · exactly 10 digits"><input inputMode="numeric" maxLength="10" value={agentCode} onChange={event => setAgentCode(event.target.value.replace(/\D/g, '').slice(0, 10))} placeholder="Optional agent code" /></Field><div className="switch-form-row"><span><strong>Accept new bookings</strong><small>Keep the salon active in customer discovery.</small></span><Toggle checked={isActive} onChange={setIsActive} /></div></section>
-    <section className="editor-section"><div className="editor-section-heading"><div><span className="eyebrow">02 · ADDRESS & LOCATION</span><h2>Where customers can find you</h2><p>Accurate coordinates power nearby salon sorting.</p></div><MapPin size={20} /></div><Field label="Address line 1"><textarea value={addressLine1} onChange={event => setAddressLine1(event.target.value)} placeholder="Street, area, building" rows="3" /></Field><Field label="Address line 2" hint="Optional"><input value={addressLine2} onChange={event => setAddressLine2(event.target.value)} placeholder="Landmark or nearby place" /></Field><div className="form-three-col editor-address-grid"><Field label="City"><input value={city} onChange={event => setCity(event.target.value)} placeholder="City" /></Field><Field label="State"><input value={state} onChange={event => setState(event.target.value)} placeholder="State" /></Field><Field label="Pincode"><input inputMode="numeric" maxLength="6" value={pincode} onChange={event => setPincode(event.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="Pincode" /></Field></div><div className={cx('editor-location-status', hasLocation ? 'location-ready' : 'location-missing')}><MapPin size={17} /><span><strong>{hasLocation ? 'Location saved' : 'Location required'}</strong><small>{hasLocation ? `${Number(latitude).toFixed(6)}, ${Number(longitude).toFixed(6)}` : locationError || 'Allow location access so nearby customers can discover this salon.'}</small></span></div><Button type="button" size="small" variant="secondary" onClick={detectLocation} loading={locationLoading}><MapPin size={15} /> Detect current location</Button></section>
-    <section className="editor-section"><div className="editor-section-heading"><div><span className="eyebrow">03 · ATMOSPHERE</span><h2>Salon photos</h2><p>Up to 4 photos · the first becomes your main image.</p></div><ImagePlus size={20} /></div><div className="editor-photo-grid">{images.map((image, index) => <div className="editor-photo" key={`${typeof image === 'string' ? image : image.preview}-${index}`}><ImageWithFallback src={typeof image === 'string' ? image : image.preview} fallback="/assets/my_naai.png" alt="Salon preview" /><button type="button" onClick={() => removeImage(index)} aria-label="Remove photo"><X size={15} /></button></div>)}{images.length < 4 && <label className="add-photo"><Plus size={20} /><span>Add photo</span><input type="file" accept="image/*" multiple onChange={addImages} /></label>}</div></section>
+  const hasLocation = locationVerified && hasCoordinate(latitude) && hasCoordinate(longitude);
+  const locationMessage = locationLoading ? 'Detecting current location…' : locationError || 'Allow location access so nearby customers can discover this salon.';
+  return <div className="screen edit-salon-screen"><PageHeader title={isOnboarding ? 'Complete salon profile' : 'Edit salon profile'} subtitle={isOnboarding ? 'Add the details customers need before you open your dashboard.' : 'Give customers a clear picture of your business.'} onBack={isOnboarding ? undefined : () => navigate(-1)} action={<button className="refresh-text-button" type="button" onClick={refreshProfile} disabled={loading}><RefreshCw size={15} /> Refresh</button>} /><form className="profile-editor" onSubmit={save}>
+    <section className="editor-section"><div className="editor-section-heading"><div><span className="eyebrow">01 · BASICS</span><h2>Salon details</h2><p>These details are shown to customers and used for booking.</p></div><Store size={20} /></div><div className="form-two-col"><Field label="Salon name"><input value={salonName} onChange={event => setSalonName(event.target.value)} placeholder="Your salon name" /></Field><Field label="Owner name"><input value={ownerName} onChange={event => setOwnerName(event.target.value)} placeholder="Owner name" /></Field></div><div className="form-two-col"><Field label="Phone number" hint={profile.phoneNumber ? 'The login number is managed by OTP authentication.' : '10 digits required'}><input inputMode="numeric" value={phoneNumber} onChange={event => setPhoneNumber(event.target.value.replace(/\D/g, '').slice(0, 10))} readOnly={Boolean(profile.phoneNumber)} placeholder="10-digit mobile number" /></Field><Field label="Email" hint="Optional"><input type="email" value={email} onChange={event => setEmail(event.target.value)} placeholder="owner@example.com" /></Field></div><SelectField label="Salon type" value={genderType} onChange={changeGenderType} options={[{ value: 'MALE', label: 'Male' }, { value: 'FEMALE', label: 'Female' }, { value: 'UNISEX', label: 'Unisex' }]} placeholder="Select salon type" /><Field label="Agent code" hint="Optional · exactly 10 digits"><input inputMode="numeric" maxLength="10" value={agentCode} onChange={event => setAgentCode(event.target.value.replace(/\D/g, '').slice(0, 10))} placeholder="Optional agent code" /></Field><div className="switch-form-row"><span><strong>Accept new bookings</strong><small>Keep the salon active in customer discovery.</small></span><Toggle checked={isActive} onChange={setIsActive} /></div></section>
+    <section className="editor-section"><div className="editor-section-heading"><div><span className="eyebrow">02 · ADDRESS & LOCATION</span><h2>Where customers can find you</h2><p>Accurate coordinates power nearby salon sorting.</p></div><MapPin size={20} /></div><Field label="Address line 1"><textarea value={addressLine1} onChange={event => setAddressLine1(event.target.value)} placeholder="Street, area, building" rows="3" /></Field><Field label="Address line 2" hint="Optional"><input value={addressLine2} onChange={event => setAddressLine2(event.target.value)} placeholder="Landmark or nearby place" /></Field><div className="form-three-col editor-address-grid"><Field label="City"><input value={city} onChange={event => setCity(event.target.value)} placeholder="City" /></Field><SelectField label="State" value={state} onChange={event => setState(event.target.value)} options={STATE_OPTIONS} placeholder="Select state" /><Field label="Pincode"><input inputMode="numeric" maxLength="6" value={pincode} onChange={event => setPincode(event.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="Pincode" /></Field></div><div className={cx('editor-location-status', hasLocation ? 'location-ready' : 'location-missing')}><MapPin size={17} /><span><strong>{hasLocation ? 'Location saved' : 'Location required'}</strong><small>{hasLocation ? `${Number(latitude).toFixed(6)}, ${Number(longitude).toFixed(6)}` : locationMessage}</small></span></div><Button type="button" size="small" variant="secondary" onClick={detectLocation} loading={locationLoading}><MapPin size={15} /> Detect current location</Button></section>
+    <section className="editor-section"><div className="editor-section-heading"><div><span className="eyebrow">03 · ATMOSPHERE</span><h2>Salon photos</h2><p>Up to 4 photos · the first becomes your main image.</p></div><ImagePlus size={20} /></div><div className="editor-photo-grid">{images.map((image, index) => <div className="editor-photo" key={`${typeof image === 'string' ? image : image.preview}-${index}`}><ImageWithFallback src={typeof image === 'string' ? image : image.preview} fallback="/assets/my_naai.png" alt="Salon photo" /><label className="editor-photo-change" aria-label={`Replace salon photo ${index + 1}`}><Pencil size={13} /><input type="file" accept="image/*" onChange={event => replaceImage(index, event)} /></label><button type="button" onClick={() => removeImage(index)} aria-label={`Remove salon photo ${index + 1}`}><X size={15} /></button></div>)}{images.length < MAX_IMAGES && <label className="add-photo"><Plus size={20} /><span>Add photo</span><input type="file" accept="image/*" multiple onChange={addImages} /></label>}</div></section>
     <section className="editor-section"><div className="editor-section-heading"><div><span className="eyebrow">04 · AVAILABILITY</span><h2>Opening hours</h2><p>Set when customers can request an appointment.</p></div><Clock3 size={20} /></div><div className="form-two-col"><Field label="Opens"><input type="time" value={openTime} onChange={event => setOpenTime(event.target.value)} /></Field><Field label="Closes"><input type="time" value={closeTime} onChange={event => setCloseTime(event.target.value)} /></Field></div><SelectField label="Weekly off" value={holiday} onChange={event => setHoliday(event.target.value)} placeholder="No weekly off" options={['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].map((day, index) => ({ value: String(index), label: day }))} /></section>
     <section className="editor-section"><div className="editor-section-heading"><div><span className="eyebrow">05 · MENU</span><h2>Services</h2><p>Every service needs a name, price and duration.</p></div><div className="editor-heading-actions"><button type="button" className="add-inline-button" onClick={loadDefaultServices}><RefreshCw size={14} /> Defaults</button><button type="button" className="add-inline-button" onClick={addService}><Plus size={15} /> Add service</button></div></div><div className="editor-items">{services.map(item => <div className="editor-item" key={item.id}><div className="editor-item-title"><Scissors size={15} /><strong>{item.name || 'New service'}</strong><button type="button" onClick={() => removeService(item.id)} aria-label="Delete service"><Trash2 size={15} /></button></div><div className="form-three-col"><input value={item.name} onChange={event => updateService(item.id, 'name', event.target.value)} placeholder="Service name" /><input type="number" min="0" value={item.price} onChange={event => updateService(item.id, 'price', event.target.value)} placeholder="Price" /><input type="number" min="5" value={item.duration} onChange={event => updateService(item.id, 'duration', event.target.value)} placeholder="Minutes" /></div><textarea className="editor-description" value={item.description} onChange={event => updateService(item.id, 'description', event.target.value)} placeholder="Short service description" rows="2" /></div>)}</div>{!services.length && <div className="editor-empty">No services added yet. Load defaults or add one manually.</div>}</section>
-    <section className="editor-section"><div className="editor-section-heading"><div><span className="eyebrow">06 · PEOPLE</span><h2>Specialists</h2><p>Add the people customers can choose during booking.</p></div><button type="button" className="add-inline-button" onClick={addBarber}><Plus size={15} /> Add specialist</button></div><div className="editor-items">{barbers.map(item => <div className="editor-item barber-editor-item" key={item.id}><div className="editor-item-title"><div className="mini-avatar">{getInitials(item.name || 'New')}</div><strong>{item.name || 'New specialist'}</strong><button type="button" onClick={() => removeBarber(item.id)} aria-label="Delete specialist"><Trash2 size={15} /></button></div><div className="form-two-col"><input value={item.name} onChange={event => updateBarber(item.id, 'name', event.target.value)} placeholder="Full name" /><input type="number" min="0" max="5" step="0.1" value={item.rating} onChange={event => updateBarber(item.id, 'rating', event.target.value)} placeholder="Rating" /></div><Toggle checked={item.isAvailable} onChange={value => updateBarber(item.id, 'isAvailable', value)} label={item.isAvailable ? 'Available' : 'Away'} /></div>)}</div>{!barbers.length && <div className="editor-empty">No specialists added. Customers can still choose any available chair.</div>}</section>
+    <section className="editor-section"><div className="editor-section-heading"><div><span className="eyebrow">06 · PEOPLE</span><h2>Specialists</h2><p>Add the people customers can choose during booking.</p></div><button type="button" className="add-inline-button" onClick={addBarber}><Plus size={15} /> Add specialist</button></div><div className="editor-items">{barbers.map(item => <div className="editor-item barber-editor-item" key={item.id}><div className="editor-item-title"><label className="editor-barber-image" aria-label={`Replace photo for ${item.name || 'new specialist'}`}><ImageWithFallback src={item.image} fallback="/assets/my_naai.png" alt="" /><span><Pencil size={11} /></span><input type="file" accept="image/*" onChange={event => selectBarberImage(item.id, event)} /></label><strong>{item.name || 'New specialist'}</strong><button type="button" onClick={() => removeBarber(item.id)} aria-label="Delete specialist"><Trash2 size={15} /></button></div><div className="form-two-col"><input value={item.name} onChange={event => updateBarber(item.id, 'name', event.target.value)} placeholder="Full name" /><input type="number" min="0" max="5" step="0.1" value={item.rating} onChange={event => updateBarber(item.id, 'rating', event.target.value)} placeholder="Rating" /></div><Toggle checked={item.isAvailable} onChange={value => updateBarber(item.id, 'isAvailable', value)} label={item.isAvailable ? 'Available' : 'Away'} /></div>)}</div>{!barbers.length && <div className="editor-empty">No specialists added. Customers can still choose any available chair.</div>}</section>
     <div className="editor-actions"><Button type="button" variant="secondary" onClick={() => navigate(-1)} disabled={isOnboarding}>Cancel</Button><Button type="submit" loading={saving}>{isOnboarding ? 'Save and continue' : 'Save profile'} <Check size={17} /></Button></div>
   </form></div>;
 }
