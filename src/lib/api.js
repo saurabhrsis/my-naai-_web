@@ -127,6 +127,8 @@ export const api = {
   bookingRequestCancel: bookingRequestId => post(`/api/booking/booking-request-cancel/${bookingRequestId}`, {}),
   customerDelayResponse: (bookingRequestId, payload) => post(`/api/bookingRequest/customer-delay-response/${bookingRequestId}/`, payload),
   bookingRequestOwnerAction: (bookingRequestId, payload) => post(`/api/bookingRequest/owner-action/${bookingRequestId}/`, payload),
+  // The mobile owner-action contract also dispatches the customer delay notification.
+  salonDelayBooking: (bookingRequestId, delayMinutes) => post(`/api/bookingRequest/owner-action/${bookingRequestId}/`, { action: 'DELAY', delayMinutes: String(delayMinutes) }),
 
   // Salon owner API.
   salonOwnerLogin: payload => post('/api/salons/send-register-otp', payload, { auth: false }),

@@ -42,6 +42,8 @@ Enable the **Web Push certificates** API in Firebase Cloud Messaging and copy th
 
 For a quick review without SMS or payment credentials, the login screen includes customer and salon workspace previews. Preview data is intentionally isolated behind `mynaaiDemo` and never sent to the API.
 
+The complete portal behavior and operational notes are in [`docs/MY-NAAI-WEB-PORTAL.md`](docs/MY-NAAI-WEB-PORTAL.md). Firebase setup, browser token generation and notification payload processing are documented in [`docs/FIREBASE-WEB-PUSH.md`](docs/FIREBASE-WEB-PUSH.md).
+
 ## PWA
 
 - Startup is intentionally immediate: session state is restored synchronously from local storage instead of showing a timed splash screen.
@@ -49,4 +51,5 @@ For a quick review without SMS or payment credentials, the login screen includes
 - `public/sw.js` caches the shell and falls back to the cached app when offline.
 - `public/firebase-messaging-sw.js` receives Firebase background messages and maps notification clicks to the matching hash route (`#/bookings`, `#/delay`, or `#/bookingRequest`).
 - Foreground Firebase messages use the same route mapping without reloading the app.
+- Salon booking requests offer +10/+20 minute time updates; the mobile-compatible owner-action API sends the delay notification to the customer.
 - The install action appears in the desktop partner sidebar when the browser exposes the install prompt.

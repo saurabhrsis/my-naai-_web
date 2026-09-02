@@ -202,7 +202,7 @@ img { display: block; max-width: 100%; }
 .page-header-compact { margin-bottom: 14px; }
 .page-header-action { display: flex; align-items: center; gap: 8px; }
 .page-actions { display: flex; align-items: center; gap: 7px; }
-.walkin-button { padding: 0 9px; }
+/* Walk-in customer entry is disabled; keep the queue focused on bookings. */
 .notification-button, .refresh-icon-button { position: relative; width: 38px; height: 38px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; background: var(--gold); color: #111; }
 .refresh-icon-button { background: var(--card); color: var(--gold); border: 1px solid var(--line); }
 .notification-ping { position: absolute; top: 8px; right: 8px; width: 6px; height: 6px; border: 1px solid #111; border-radius: 50%; background: var(--red); }
@@ -436,11 +436,7 @@ img { display: block; max-width: 100%; }
 .queue-group-heading h2 { margin: 0; color: var(--gold); font-size: 14px; }
 .queue-group-heading span { color: var(--muted); font-size: 10px; }
 .queue-card { display: flex; gap: 10px; margin-bottom: 9px; padding: 11px; border: 1px solid var(--line); border-radius: 15px; background: var(--card); }
-.queue-token { width: 47px; min-height: 63px; flex: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; border-radius: 11px; color: var(--gold); background: var(--gold-wash); }
-.queue-token.today { color: #111; background: var(--gold); }
-.queue-token.tomorrow { color: var(--green); background: rgba(110,209,158,.1); }
-.queue-token small { font-size: 7px; letter-spacing: .12em; font-weight: 700; }
-.queue-token strong { font-size: 14px; }
+/* Queue token numbers are intentionally not shown in the salon portal. */
 .queue-main { min-width: 0; flex: 1; }
 .queue-card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
 .queue-card-heading h3 { overflow: hidden; margin: 0 0 4px; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
