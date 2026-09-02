@@ -268,6 +268,8 @@ export default function App() {
     }).then(result => {
       if (cancelled) result?.unsubscribe?.();
       else unsubscribe = result?.unsubscribe || (() => {});
+    }).catch(pushError => {
+      if (!cancelled) console.debug(getErrorMessage(pushError, 'Live browser notifications are unavailable.'));
     });
     return () => { cancelled = true; unsubscribe(); };
   }, [session?.demo, session?.role, session?.userId]);
