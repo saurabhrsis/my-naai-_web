@@ -1,0 +1,173 @@
+// The web client intentionally keeps the same REST contract as the React Native app.
+// Set VITE_API_BASE_URL for a staging API; production defaults to the mobile app's API.
+const configuredApiUrl = import.meta.env.VITE_API_BASE_URL;
+// Vite proxies API calls in local development so the portal can use the mobile
+// backend without a browser CORS hop. Production can point this at the same API
+// directly (or set VITE_API_BASE_URL to the deployed reverse proxy).
+export const API_BASE_URL = (configuredApiUrl || (import.meta.env.DEV ? '' : 'https://backend.mynaai.in')).replace(/\/$/, '');
+
+const TOKEN_KEY = 'mynaai';
+
+export function getToken() {
+  const stored = localStorage.getItem(TOKEN_KEY);
+  if (!stored) return '';
+  try {
+    const parsed = JSON.parse(stored);
+    return parsed?.token || '';
+  } catch {
+    return stored;
+  }
+}
+
+export function setToken(token) {
+  if (token) localStorage.setItem(TOKEN_KEY, JSON.stringify({ token }));
+}
+
+export function clearSession() {
+  ['mynaai', 'mynaaiUser', 'isLoggedIn', 'userType', 'isNewSalon', 'mynaaiDemo'].forEach(key => localStorage.removeItem(key));
+}
+
+export function getServerUrl() {
+  return API_BASE_URL;
+}
+
+export function getFileUrl(path) {
+  if (!path) return '';
+  if (typeof path !== 'string') return '';
+  if (/^(https?:|data:|blob:)/i.test(path)) return path;
+  if (path.startsWith('/assets/')) return path;
+  if (path.startsWith('/')) return `${API_BASE_URL}${path}`;
+  return `${API_BASE_URL}/getfiles/${path.replace(/^\/+/, '')}`;
+}
+
+function queryString(params = {}) {
+  const query = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') query.set(key, value);
+  });
+  const value = query.toString();
+  return value ? `?${value}` : '';
+}
+
+export class ApiError extends Error {
+  constructor(message, status, data) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.data = data;
+  }
+}
+
+async function request(path, { method = 'GET', body, params, headers = {}, auth = true, signal } = {}) {
+  const isFormData = typeof FormData !== 'undefined' && body instanceof FormData;
+  const requestHeaders = { ...headers };
+  if (!isFormData && body !== undefined && !requestHeaders['Content-Type']) {
+    requestHeaders['Content-Type'] = 'application/json';
+  }
+  const token = getToken();
+  if (auth && token) requestHeaders.Authorization = `Bearer ${token}`;
+
+  const response = await fetch(`${API_BASE_URL}${path}${queryString(params)}`, {
+    method,
+    headers: requestHeaders,
+    body: body === undefined ? undefined : isFormData || typeof body === 'string' ? body : JSON.stringify(body),
+    signal,
+  });
+
+  const text = await response.text();
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = text;
+  }
+
+  if (!response.ok) {
+    const message = data?.message || data?.error || `Request failed (${response.status})`;
+    if (data?.status === 'JWT_FAILED') clearSession();
+    throw new ApiError(message, response.status, data);
+  }
+  if (data?.status === 'JWT_FAILED') {
+    clearSession();
+    throw new ApiError(data?.message || 'Your session has expired.', response.status, data);
+  }
+  return data;
+}
+
+const post = (path, body, options = {}) => request(path, { ...options, method: 'POST', body });
+const get = (path, options = {}) => request(path, { ...options, method: 'GET' });
+const put = (path, body, options = {}) => request(path, { ...options, method: 'PUT', body });
+const del = (path, options = {}) => request(path, { ...options, method: 'DELETE' });
+
+export const api = {
+  // User API — endpoint names mirror src/services/communication.js in my_naai_app.
+  sendRegisterOtp: userData => post('/api/users/send-otp-register', userData, { auth: false }),
+  createUser: userData => post('/api/users/create', userData, { auth: false }),
+  userOnBoard: userData => post('/api/users/onboard', userData, { auth: false }),
+  userLogin: payload => post('/api/users/send-otp', payload, { auth: false }),
+  verifyLogin: payload => post('/api/users/verify-otp', payload, { auth: false }),
+  userProfile: ({ userId }) => get('/api/users/profile', { params: { userId } }),
+  updateProfile: payload => post('/api/users/update', payload),
+  userSalonList: payload => post('/api/salons/salon-list', payload),
+  bookedSalonList: ({ userId, page = 1, searchString = '' }) => post('/api/booking/get-list', { userId, page, searchString }),
+  userAds: () => get('/api/advertisement/get-advertisement'),
+  toggleSaveSalon: payload => post('/api/users/toggle-saved-salon', payload),
+  saveSalon: payload => post('/api/users/save-salon', payload),
+  removeSalon: payload => post('/api/users/remove-salon', payload),
+  userProductList: payload => post('/api/products/get-all-salons-products-list', payload),
+  userNotificationList: payload => post('/api/notifications/get-user-notification-list', payload),
+  userNotificationCount: payload => get('/api/notifications/get-user-notification-count', { params: payload }),
+
+  // Booking API.
+  salonByIdInfo: ({ salonId }) => post('/api/salons/get-salon-by-id', { salonId }),
+  bookSalonService: payload => post('/api/booking/book', payload),
+  createBookingRequest: payload => post('/api/bookingRequest/create-booking-request', payload),
+  getBookingRequestById: bookingRequestId => get(`/api/bookingRequest/get-bookingRequest-by-id/${bookingRequestId}/`),
+  bookingRequestCancel: bookingRequestId => post(`/api/booking/booking-request-cancel/${bookingRequestId}`, {}),
+  customerDelayResponse: (bookingRequestId, payload) => post(`/api/bookingRequest/customer-delay-response/${bookingRequestId}/`, payload),
+  bookingRequestOwnerAction: (bookingRequestId, payload) => post(`/api/bookingRequest/owner-action/${bookingRequestId}/`, payload),
+
+  // Salon owner API.
+  salonOwnerLogin: payload => post('/api/salons/send-register-otp', payload, { auth: false }),
+  createPaymentOrder: payload => post('/api/salons/create-payment-order', payload, { auth: false }),
+  createSalon: payload => post('/api/salons/create-salon-with-plan', payload),
+  renewSalon: payload => post('/api/salons/renew-salon-plan', payload),
+  verifySalonOwnerLogin: payload => post('/api/salons/verify-otp-register', payload, { auth: false }),
+  salonRequest: payload => post('/api/salonrequest/create-request', payload, { auth: false }),
+  SalonLogin: payload => post('/api/salons/send-otp', payload, { auth: false }),
+  verifySalonLogin: payload => post('/api/salons/login', payload, { auth: false }),
+  customerList: payload => post('/api/booking/get-booking-list', payload),
+  salonProfile: ({ salonId }) => post('/api/salons/get-salon', { salonId }),
+  deleteSalonService: serviceId => post('/api/salons/delete-service', { serviceId }),
+  deleteSalonBarber: barberId => del('/api/barbers/delete-barber', { body: { barberId } }),
+  editSalonProfile: payload => post('/api/salons/edit-salon-profile', payload),
+  updateSalonProfile: payload => post('/api/salons/update-salon', payload),
+  SalonOpenClose: payload => post('/api/salons/open-close', payload),
+  salonQueueHistory: (payload = {}) => get('/api/booking/get-completed-bookings', { params: payload }),
+  bookingDone: payload => post('/api/booking/booking-complete', payload),
+  getBarbersList: payload => get('/api/barbers/get-salon-barbers', { params: payload }),
+  walkInBooking: payload => post('/api/booking/create-walk-in', payload),
+  salonProductList: payload => post('/api/products/list', payload),
+  createProductList: payload => post('/api/products/create', payload),
+  updateProductList: payload => post('/api/products/update', payload),
+  deleteProduct: productId => post('/api/products/delete', { productId }),
+  salonNotificationList: payload => post('/api/notifications/get-salon-notification-list', payload),
+  salonNotificationCount: payload => get('/api/notifications/get-notification-count', { params: payload }),
+
+  uploadImages: formData => post('/api/upload/upload-image', formData, { auth: false }),
+  // Friendly aliases for browser code.
+  uploadImage: file => {
+    const formData = new FormData();
+    formData.append('image', file);
+    return request('/api/upload/upload-image', { method: 'POST', body: formData, auth: true });
+  },
+};
+
+export async function tryApi(fn, fallback) {
+  try {
+    return await fn();
+  } catch (error) {
+    if (fallback !== undefined) return typeof fallback === 'function' ? fallback(error) : fallback;
+    throw error;
+  }
+}
