@@ -108,6 +108,37 @@ POST /api/bookingRequest/owner-action/{bookingRequestId}/
 
 The backend is expected to persist the delay and send the `DELAY_TIME_PROPOSAL` message to the customer’s stored `deviceToken`.
 
+### Web payload requirement (the one backend change web push needs)
+
+Web push behaves differently from Android/iOS in one important way:
+
+- **Data-only message** → delivered to `onBackgroundMessage()` in `public/firebase-messaging-sw.js`, which builds the notification *and* stores the click destination. Clicking it opens `#/bookingRequest?...`, `#/delay?...`, etc.
+- **Message with a `notification` block** → the browser displays it itself and `onBackgroundMessage()` is **not** called, so the notification carries no destination data and a click lands on the portal home screen.
+
+So for `platform: "web"` tokens the backend should either keep sending **data-only** messages (preferred — the mobile `data` contract already has everything the portal needs: `type`, `bookingRequestId`, `title`, `body`, `delayMinutes`, `proposedTime`), or, if a `notification` block must stay, add the web deep link so clicks still route:
+
+```json
+{
+  "message": {
+    "token": "<stored-web-device-token>",
+    "data": {
+      "type": "BOOKING_REQUEST",
+      "bookingRequestId": "booking-request-id",
+      "title": "New booking request",
+      "body": "Rahul requested a haircut at 5:00 PM"
+    },
+    "webpush": {
+      "fcm_options": {
+        "link": "https://portal.mynaai.in/#/bookingRequest?bookingRequestId=booking-request-id"
+      },
+      "notification": { "requireInteraction": true }
+    }
+  }
+}
+```
+
+Nothing else changes server-side: the same FCM sender, the same `data.type` vocabulary and the same `deviceToken` column work for web. The web registration token is simply longer than an Android token, so make sure the column is not truncated (store at least 255 characters).
+
 ## 4.1 Backend validation requirement
 
 MyNaai intentionally treats push as a required feature because booking notifications, buzzer behavior and notification actions are part of the core workflow. Keep `deviceToken` required and non-empty on the authentication/onboarding endpoints. The portal now obtains the browser token before sending the OTP request and blocks the request with a clear setup error if it cannot obtain one; it never sends `deviceToken: ''`.
@@ -134,14 +165,14 @@ A dedicated authenticated endpoint such as `POST /api/notifications/register-dev
 The current portal sends the token during the auth flow, but this endpoint is useful when a browser token rotates or the user changes notification permission. If the backend requires only one token field, make sure a web login does not disable the user’s mobile notifications by overwriting the mobile token.
 ### Foreground delivery
 
-When the portal tab is open, `onMessage()` in `src/lib/push.js` delivers the payload to `App.jsx`. The app maps the payload to a route immediately so the matching screen is visible:
+FCM hands foreground web messages to the page instead of the OS, so nothing appears unless the app renders it. `onMessage()` in `src/lib/push.js` therefore:
 
-- Customer delay proposal → `#/delay`
-- Customer booking status → `#/bookings`
-- Salon booking request → `#/bookingRequest`
-- Salon delay action → `#/bookingRequest` with `openDelayModal=true`
+1. Normalizes the payload (`normalizePushPayload`) — FCM can deliver `{ notification, data }`, data-only, or a `notification` block next to an **empty** `data` object; all three are merged so the type and IDs are never lost.
+2. Displays a real browser notification through the messaging service worker (`displayNotification`), which keeps the same click destination as a background notification.
+3. Shows an in-app toast so a partner working in the portal sees the alert even with OS notifications muted.
+4. Auto-navigates **only** for time-critical actions — salon `BOOKING_REQUEST` / `DELAY_BOOKING` and customer `DELAY_TIME_PROPOSAL` — and never when that screen is already open. Informational messages (booking confirmed/rejected, delay response) no longer pull a customer out of the booking flow; the notification click still routes to `#/bookings`.
 
-This is the web equivalent of the mobile app’s foreground notification route handling. The browser does not need the background worker to process a message while the React page is active.
+The browser does not need the background worker to process a message while the React page is active, but the same worker registration is reused to display it so click routing stays in one place.
 
 ### Background delivery
 
@@ -198,6 +229,7 @@ Do not replace `public/sw.js` with the Firebase worker and do not register both 
 
 - Confirm every `VITE_FIREBASE_*` variable is present at build time.
 - Restart Vite after changing `.env.local`.
+- The portal now names the reason instead of failing silently: an unconfigured deployment, an unsupported browser context (iPhone/iPad needs the installed PWA), a denied permission and a token failure all render their own card, because sign-in cannot continue without a `deviceToken`.
 - Confirm the site is HTTPS (or running on `localhost`).
 - Check that the browser has not permanently blocked notifications for the origin.
 - The app offers an explicit notification action on its initial onboarding/login view and again in the authenticated workspace; OTP actions also request permission when needed.

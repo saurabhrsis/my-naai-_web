@@ -70,7 +70,7 @@ Queue token numbers are not shown in the portal. The queue now focuses on the cu
 
 ## 5. Salon profile update contract
 
-The web editor mirrors the mobile app's `EditSalonProfileScreen`: the same collapsible groups (**Owner Information**, **Salon Information**, **Address & Location**, **Salon Images**, **Business Hours**, **Salon Services**, **Barbers**) and the same field labels (Salon Owner Name, Mobile Number, Email Address, Salon Name, Salon Type, Agent Code, Complete Address, Landmark / Address Line 2, City, State, Pincode, Opening Time, Closing Time, Weekly Off, Service Name, Price, Duration, Description, Barber Name, Availability). Groups default to the mobile layout (Owner/Salon open, the rest collapsed, all open during onboarding), collapsed groups show a one-line summary, and a failed save re-opens the group that failed validation. Individual service and barber cards expand exactly like the mobile editor. The web editor sends the same complete body shape used by the mobile salon editor to `POST /api/salons/edit-salon-profile`. It includes profile/contact/address fields, numeric `latitude` and `longitude`, `imageUrl`, `imagesArray`, a detailed `businessHours` array, `isActive`, `profileCompleted`, and separate service/specialist collections:
+The web editor mirrors the mobile app's `EditSalonProfileScreen`: the same collapsible groups (**Owner Information**, **Salon Information**, **Address & Location**, **Salon Images**, **Business Hours**, **Salon Services**, **Barbers**) and the same field labels (Salon Owner Name, Mobile Number, Email Address, Salon Name, Salon Type, Agent Code, Complete Address, Landmark / Address Line 2, City, State, Pincode, Opening Time, Closing Time, Weekly Off, Service Name, Price, Duration, Description, Barber Name, Availability). **Every group is collapsed by default** (including during onboarding) and each collapsed card still carries three readable lines: the group title, the mobile app's sub heading (for example *Name, phone number and email*) and a live summary of what is inside it, plus a red `N required` chip when something mandatory is missing. Required fields are marked with a red `*` exactly like the mobile `FieldLabel`, inputs use a larger 15px body size with a lighter border and placeholder, and a status bar above the form counts the outstanding required details with an **Expand all / Collapse all** control. A failed save opens the offending group, scrolls it into view and focuses its first input. Individual service and barber cards expand exactly like the mobile editor, and an incomplete service or barber is flagged while collapsed. The web editor sends the same complete body shape used by the mobile salon editor to `POST /api/salons/edit-salon-profile`. It includes profile/contact/address fields, numeric `latitude` and `longitude`, `imageUrl`, `imagesArray`, a detailed `businessHours` array, `isActive`, `profileCompleted`, and separate service/specialist collections:
 
 ```json
 {
@@ -100,6 +100,18 @@ The web editor mirrors the mobile app's `EditSalonProfileScreen`: the same colla
 
 New services and specialists intentionally omit their IDs; existing records retain `serviceId`/`barberId`. The editor preserves the schedule ID and break times, and refuses to submit missing/invalid coordinates or malformed contact, service, barber and time values.
 
+Coordinates that already exist on the profile are kept as-is; the browser location prompt only runs automatically when the salon has **no** saved pin, so an existing partner editing their menu from home never has the salon location silently replaced. **Detect current location** remains available on demand.
+
+### Where a save takes the partner
+
+| Profile state when the editor opened | Active plan | After a successful save |
+| --- | --- | --- |
+| New salon / profile not completed | none or expired | **Payment screen** (`#/subscription`) — free 20-day onboarding plan first, then the paid plans |
+| New salon / profile not completed | already active | **Salon account** (`#/account`) — never a second payment for the same save |
+| Complete profile (routine edit) | any | **Salon account** (`#/account`) |
+
+Sign-in, session restore and the salon account screen all force an incomplete profile back into this editor (`isNewSalon` / `profileCompleted === false`, or a profile missing owner name, salon name, address, salon type, coordinates, services or business hours), so a new salon always reaches the editor first and the payment screen second.
+
 ### Live updates socket
 
 Both realtime screens (salon **Customer queue** and customer **My bookings**) share one socket.io connection managed by `src/lib/socket.js`. It mirrors the mobile app's global socket approach: it joins the `join_salon`/`join_user` room for the signed-in identity, re-joins rooms after every reconnect, listens for `queue_updated`/`booking_status_updated`, and starts with polling before upgrading to WebSocket so a blocked `wss` upgrade degrades to polling instead of failing (the earlier websocket-only connections produced "WebSocket is closed before the connection is established" during React StrictMode remounts and never recovered behind proxies without an upgrade path). Local development connects same-origin through the Vite `/socket.io` ws proxy; production uses `VITE_API_BASE_URL`. The connection is rebuilt on logout and session expiry.
@@ -117,6 +129,18 @@ The subscription route follows the mobile `SubscriptionsPlan` contract:
 - A logged-in partner can choose a renewal plan from the account subscription entry. The browser creates the Razorpay order and sends `{ planType, paymentId, totalAmount }` to `POST /api/salons/renew-salon-plan` with the persisted salon session. A successful renewal returns to the partner account without replacing the session with a temporary token.
 
 The public Razorpay key is read from `VITE_RAZORPAY_KEY_ID` (with the mobile app's configured live key as the production fallback); no secret is placed in the browser. The payment order and subscription endpoints remain in `src/lib/api.js` with the mobile method names and bearer/body contracts.
+
+### Payment outcomes, cancellation and UPI app hand-off
+
+`src/lib/razorpay.js` wraps Checkout so every outcome is explicit instead of a silent `null`:
+
+- **Amount** — the order is created in rupees (`{ amount, currency: 'INR' }`) and Checkout is opened with the order's own amount in paise; a ₹0 plan falls back to 100 paise, matching `paymentForMembership` in the mobile app so the gateway never rejects a zero-amount order.
+- **Cancelled** — closing the sheet (back button, `Esc`, dismiss) reports *"Payment cancelled. No amount was charged."* and keeps the partner on the plan picker with the order ID for support. `modal.confirm_close` is on so an accidental back-tap while a UPI app is opening does not silently abandon the subscription.
+- **Failed** — `payment.failed` shows the bank/gateway reason but leaves the sheet open so the partner can retry with another method; only a terminal validation failure resolves immediately. A failed attempt is never treated as success, and a retry that succeeds still activates the plan.
+- **UPI app redirect (GPay / PhonePe / Paytm / BHIM)** — the sheet is kept alive while the tab is hidden (`visibilitychange` / `pagehide`), the UI switches to *"Waiting for your payment app…"* and then *"Confirming your payment… — please do not pay again"* when the partner returns. If Checkout hands the result back through a redirect instead, `razorpay_payment_id` / `razorpay_order_id` / `razorpay_signature` are read from the URL (search **or** hash query), matched to the stored order, used to finish `create-salon-with-plan` / `renew-salon-plan`, and then stripped from the address bar so a refresh cannot replay them.
+- **Interrupted / killed tab** — the order, plan and (for registration) the registration payload are persisted before the sheet opens. On return the portal shows a recovery card with the order ID, **Try again** and a `tel:` link to 8380017393; a stale record (over 30 minutes) is discarded. If a payment succeeded but activation failed, the card switches to *"Payment received, plan not activated"*, hides **Try again** and shows the payment ID, so a partner is never invited to pay twice.
+- **Gateway availability** — `checkout.js` is loaded on demand if the async tag in `index.html` was blocked, and the screen shows a live status line (`Secure payments powered by Razorpay` / `Preparing…` / `could not load` with **Retry**) instead of failing only when the partner taps pay.
+- **Registration token** — the temporary `verify-otp-register` token is sent only as an `Authorization` header on `create-salon-with-plan`; it is no longer written into the session before payment, so a cancelled payment cannot leave the portal holding a temporary token.
 
 ## 7. Salon time update and customer notification
 
@@ -160,6 +184,8 @@ The notification route mapping is shared by foreground JavaScript and the Fireba
 | `BOOKING_REQUEST` | `#/bookingRequest?bookingRequestId=...` | Salon |
 | `DELAY_BOOKING` | `#/bookingRequest?bookingRequestId=...&openDelayModal=true` | Salon |
 
+Foreground messages are rendered by the app itself (browser notification + in-app toast) and only time-critical types auto-navigate, so an informational message cannot pull a customer out of the booking flow; see [FIREBASE-WEB-PUSH.md](./FIREBASE-WEB-PUSH.md#foreground-delivery).
+
 Hash query parameters are parsed by `App.jsx`, so a notification click remains actionable after a cold start or browser restart. See [FIREBASE-WEB-PUSH.md](./FIREBASE-WEB-PUSH.md) for Firebase setup and payload details.
 
 ## 9. PWA service workers
@@ -179,7 +205,9 @@ They must not be merged into one worker or registered with the same scope. The P
 | `src/lib/api.js` | Mobile-compatible REST client, bearer token and JWT cleanup |
 | `src/lib/socket.js` | Shared salon/user live-update socket (room joins, polling→WebSocket) |
 | `src/lib/planDetails.js` | Plan catalog and active-subscription normalization |
-| `src/lib/devtoolsShield.js` | Swallows the known Chrome DevTools Performance-panel crash |
+| `src/lib/devtoolsShield.js` | Swallows the known Chrome DevTools Performance-panel crash (also inlined in `index.html` so it runs before the bundle) |
+| `src/lib/razorpay.js` | Checkout loader, amount rules, payment outcomes, UPI hand-off tracking and pending-payment recovery |
+| `src/components/SubscriptionScreen.jsx` | Plan picker, Razorpay flow, cancellation/failure copy and payment recovery |
 | `src/lib/push.js` | Firebase initialization, permission/token flow and notification route mapping |
 | `public/assets/brand/naai-mark.svg` | Official MyNaai mark (inherits `currentColor`) used by the in-app brand chip |
 | `public/assets/brand/naai-logo-dark.svg` | Official logo on the dark app tile; the default image fallback everywhere |
@@ -209,3 +237,18 @@ Then test on an HTTPS deployment with a real customer and salon account:
 - Send a `DELAY_TIME_PROPOSAL` notification to a customer and test both responses.
 - Test push permission denied, browser refresh, foreground delivery and background delivery.
 - Confirm the existing offline shell worker still works independently of Firebase Messaging.
+- Open **Edit salon profile**: every card starts collapsed with its sub heading visible, `*` marks the required fields, and a failed save opens and scrolls to the offending card.
+- Save a new/incomplete profile and confirm it lands on the payment screen; save a complete profile and confirm it returns to **Salon account**.
+- On a phone, start a payment, choose UPI, switch to Google Pay/PhonePe, come back and confirm the portal shows *Confirming your payment…* and activates the plan.
+- Open Checkout and press back/close: confirm the *Payment cancelled — no amount was charged* notice and that **Continue** starts a fresh order.
+
+## 12. Known console noise (not a MyNaai bug)
+
+While Chrome DevTools is open, its Performance panel injects an anonymous helper script that can throw:
+
+```text
+Uncaught TypeError: Cannot read properties of undefined (reading 'startTime')
+    at et.reportAllChanges (<anonymous>:2:19429)
+```
+
+This comes from DevTools itself (the same signature is reported in `angular/angular#70464`), not from the portal — the only `startTime` read in this codebase is `details?.startTime` in `BookingRequestScreen`, which is optional-chained. `index.html` installs a capture-phase guard before the bundle loads and `src/lib/devtoolsShield.js` keeps it active afterwards; both suppress **only** that exact signature (`reading 'startTime'` plus `reportAllChanges`/anonymous source) so real errors still surface. It only appears with DevTools open and never reaches users who do not open DevTools.
