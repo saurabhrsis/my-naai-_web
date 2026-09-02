@@ -152,7 +152,7 @@ Two workers have separate responsibilities and scopes:
 - `public/sw.js` owns the root app scope and caches the offline shell.
 - `public/firebase-messaging-sw.js` is registered only when Firebase push is configured, with scope `/firebase-cloud-messaging-push-scope`. It receives background FCM messages, shows a browser notification and handles click-through routing.
 
-They must not be merged into one worker or registered with the same scope. The PWA install prompt is captured by the app and offered from the desktop partner sidebar when the browser supports it.
+They must not be merged into one worker or registered with the same scope. The PWA install prompt is captured by the app and offered during onboarding/authentication and from the workspace sidebar when the browser supports it.
 
 ## 9. Important source locations
 
