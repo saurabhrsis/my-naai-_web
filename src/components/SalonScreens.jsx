@@ -49,6 +49,8 @@ import {
   formatDate,
   formatDateTime,
   formatTime,
+  getBrowserLocation,
+  getErrorMessage,
   getInitials,
   getSalonStatus,
 } from './Shared';
@@ -79,7 +81,7 @@ function WalkInModal({ open, onClose, session, notify, onAdded }) {
   const [saving, setSaving] = useState(false);
   useEffect(() => {
     if (!open || session.demo) return;
-    api.getBarbersList({ salonId: session.userId }).then(response => setBarbers(getList(response))).catch(() => {});
+    api.getBarbersList({ salonId: session.userId }).then(response => setBarbers(getList(response))).catch(error => { console.debug(getErrorMessage(error, 'Unable to load specialists.')); });
   }, [open, session.demo, session.userId]);
   useEffect(() => { if (!open) { setCustomerName(''); setDuration('30'); setBarberId(''); } }, [open]);
   const add = async event => {
@@ -118,7 +120,7 @@ export function SalonQueueScreen({ session, navigate, notify }) {
   useEffect(() => {
     if (isDemo) return undefined;
     let socket;
-    try { socket = io((import.meta.env.VITE_API_BASE_URL || 'https://backend.mynaai.in').replace(/\/$/, ''), { transports: ['websocket'] }); socket.on('connect', () => socket.emit('join_salon', String(session.userId))); socket.on('queue_updated', () => load()); } catch { /* REST fallback */ }
+    try { socket = io((import.meta.env.VITE_API_BASE_URL || 'https://backend.mynaai.in').replace(/\/$/, ''), { transports: ['websocket'] }); socket.on('connect', () => socket.emit('join_salon', String(session.userId))); socket.on('queue_updated', () => load()); } catch (error) { console.debug(getErrorMessage(error, 'Live queue updates are unavailable; using refresh.')); /* REST fallback */ }
     return () => socket?.disconnect();
   }, [isDemo, load, session.userId]);
   const markDone = async bookingId => {
@@ -134,7 +136,7 @@ export function SalonHistoryScreen({ session, notify }) {
   const isDemo = session.demo;
   const [items, setItems] = useState(isDemo ? DEMO_HISTORY : []);
   const [loading, setLoading] = useState(!isDemo);
-  const load = useCallback(async () => { if (isDemo) return; setLoading(true); try { const response = await api.salonQueueHistory({ page: 1 }); setItems(response?.bookings || getList(response, ['bookings'])); } catch (error) { notify?.('error', getErrorMessage(error, 'Unable to load booking history.')); } finally { setLoading(false); } }, [isDemo, notify]);
+  const load = useCallback(async () => { if (isDemo) return; setLoading(true); try { const response = await api.salonQueueHistory(); setItems(response?.bookings || getList(response, ['bookings'])); } catch (error) { notify?.('error', getErrorMessage(error, 'Unable to load booking history.')); } finally { setLoading(false); } }, [isDemo, notify]);
   useEffect(() => { load(); }, [load]);
   return <div className="screen history-screen"><PageHeader title="Customer history" subtitle="A record of the work you have completed." action={<button className="refresh-text-button" onClick={load}><History size={15} /> Refresh</button>} />{loading ? <div className="list-stack">{[1, 2, 3, 4].map(item => <SkeletonCard key={item} className="history-skeleton" />)}</div> : items.length ? <div className="history-list">{items.map((item, index) => <article className="history-card" key={item.bookingId || index}><div className="history-avatar">{getInitials(item.userName || 'Guest')}</div><div className="history-copy"><div className="history-heading"><h3>{item.userName || 'Guest'}</h3><span>{formatDate(item.bookingDate)}</span></div><p>{item.services || item.serviceNames || 'Salon service'}</p><div><span><UserRound size={13} /> {item.barberName || 'Any specialist'}</span><span><Clock3 size={13} /> {formatTime(item.bookingTime)}</span></div></div><CheckCircle2 className="history-check" size={19} /></article>)}</div> : <EmptyState icon={History} title="No completed bookings" message="Your completed services will be listed here." />}</div>;
 }
@@ -172,7 +174,7 @@ export function SalonProductsScreen({ session, notify }) {
   };
   const toggle = async item => {
     const next = { ...item, available: !item.available }; setProducts(current => current.map(value => value.id === item.id ? next : value));
-    if (!isDemo) { try { await api.updateProductList({ productId: item.id, productName: item.name, price: item.price, rating: item.rating, isAvailable: next.available, productImage: item.image || '' }); } catch { setProducts(current => current.map(value => value.id === item.id ? item : value)); notify?.('error', 'Availability could not be updated.'); } }
+    if (!isDemo) { try { await api.updateProductList({ productId: item.id, productName: item.name, price: item.price, rating: item.rating, isAvailable: next.available, productImage: item.image || '' }); } catch (error) { setProducts(current => current.map(value => value.id === item.id ? item : value)); notify?.('error', getErrorMessage(error, 'Availability could not be updated.')); } }
   };
   return <div className="screen salon-products-screen"><PageHeader title="Product catalog" subtitle="Manage the products customers can discover." action={<Button size="small" onClick={openAdd}><Plus size={16} /> Add product</Button>} />{loading ? <div className="product-grid">{[1, 2, 3, 4].map(item => <SkeletonCard key={item} />)}</div> : products.length ? <div className="product-grid salon-product-grid">{products.map(item => <article className="product-card salon-product-card" key={item.id}><div className="product-image-wrap"><ImageWithFallback src={item.image} fallback="/assets/naai/ad2.jpg" alt={item.name} className="product-image" /><span className={cx('stock-label', item.available ? 'in-stock' : 'out-stock')}>{item.available ? 'In stock' : 'Out of stock'}</span></div><div className="product-copy"><h3>{item.name}</h3><div className="product-price-row"><strong>{formatCurrency(item.price)}</strong><Rating value={item.rating} /></div><div className="product-manage-row"><Toggle checked={item.available} onChange={() => toggle(item)} label={item.available ? 'Available' : 'Hidden'} /><div><button className="small-icon-button" onClick={() => openEdit(item)} aria-label={`Edit ${item.name}`}><Pencil size={15} /></button><button className="small-icon-button danger" onClick={() => remove(item)} aria-label={`Delete ${item.name}`}><Trash2 size={15} /></button></div></div></div></article>)}</div> : <EmptyState icon={Package} title="No products yet" message="Add your first product to the customer shelf." action={<Button onClick={openAdd}><Plus size={16} /> Add product</Button>} />}<Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? 'Edit product' : 'Add product'}><form className="modal-form" onSubmit={save}><Field label="Product image" hint="Optional · JPG or PNG"><label className="image-upload-box">{form.preview ? <img src={form.preview} alt="Product preview" /> : <><ImagePlus size={24} /><span>Choose an image</span></>}<input type="file" accept="image/*" onChange={event => { const file = event.target.files?.[0]; if (file) setForm(current => ({ ...current, imageFile: file, preview: URL.createObjectURL(file) })); }} /></label></Field><Field label="Product name"><input value={form.productName} onChange={event => setForm(current => ({ ...current, productName: event.target.value }))} placeholder="e.g. Matte Clay Pomade" autoFocus /></Field><div className="form-two-col"><Field label="Price"><input type="number" min="0" value={form.price} onChange={event => setForm(current => ({ ...current, price: event.target.value }))} placeholder="499" /></Field><Field label="Rating"><input type="number" min="0" max="5" step="0.1" value={form.rating} onChange={event => setForm(current => ({ ...current, rating: event.target.value }))} placeholder="4.8" /></Field></div><div className="switch-form-row"><span><strong>Available for customers</strong><small>Show this product on the shelf</small></span><Toggle checked={form.isAvailable} onChange={value => setForm(current => ({ ...current, isAvailable: value }))} /></div><div className="form-actions"><Button type="button" variant="secondary" onClick={() => setModalOpen(false)}>Cancel</Button><Button type="submit" loading={saving}>{editing ? 'Save changes' : 'Add product'}</Button></div></form></Modal></div>;
 }
@@ -185,7 +187,7 @@ export function SalonAccountScreen({ session, navigate, notify, onSessionUpdate 
   const [profile, setProfile] = useState(isDemo ? DEMO_SALON_PROFILE : session.user?.salon || {});
   const [loading, setLoading] = useState(!isDemo);
   const [isOpen, setIsOpen] = useState(Boolean(profile.isOpen));
-  const load = useCallback(async () => { if (isDemo) return; setLoading(true); try { const response = await api.salonProfile({ salonId: session.userId }); if (response?.status === 'SUCCESS') { setProfile(response.data); setIsOpen(getSalonStatus(response.data.businessHours, response.data.isOpen).isOpen); onSessionUpdate?.(response.data); } } catch (error) { notify?.('error', getErrorMessage(error, 'Unable to load salon profile.')); } finally { setLoading(false); } }, [isDemo, notify, onSessionUpdate, session.userId]);
+  const load = useCallback(async () => { if (isDemo) return; setLoading(true); try { const response = await api.salonProfile({ salonId: session.userId }); if (response?.status === 'SUCCESS') { const data = response.data || {}; setProfile(data); setIsOpen(getSalonStatus(data.businessHours, data.isOpen).isOpen); const incomplete = data.profileCompleted === false; onSessionUpdate?.(data, incomplete ? { isNewSalon: true } : undefined); if (incomplete) navigate('editProfile', { isOnboarding: 'true' }, { replace: true }); } } catch (error) { notify?.('error', getErrorMessage(error, 'Unable to load salon profile.')); } finally { setLoading(false); } }, [isDemo, navigate, notify, onSessionUpdate, session.userId]);
   useEffect(() => { load(); }, [load]);
   const toggleOpen = async () => { const next = !isOpen; setIsOpen(next); if (!isDemo) { try { const response = await api.SalonOpenClose({ salonId: session.userId, isOpen: next }); if (response?.status && response.status !== 'SUCCESS') throw new Error(response.message || 'Could not update status'); notify?.('success', next ? 'Salon is now open.' : 'Salon is now closed.'); } catch (error) { setIsOpen(!next); notify?.('error', getErrorMessage(error, 'Could not update salon status.')); } } else notify?.('success', next ? 'Salon is now open.' : 'Salon is now closed.'); };
   if (loading) return <div className="screen salon-account-screen"><PageHeader title="Salon account" /><div className="account-loading"><Spinner label="Loading salon profile…" /></div></div>;
@@ -194,49 +196,283 @@ export function SalonAccountScreen({ session, navigate, notify, onSessionUpdate 
   return <div className="screen salon-account-screen"><PageHeader title="Salon account" subtitle="Your business, in one place." action={<button className="refresh-text-button" onClick={load}><Zap size={15} /> Refresh</button>} /><section className="salon-profile-hero"><div className="salon-profile-photo"><ImageWithFallback src={profile.imageUrl || profile.imagesArray?.[0]} fallback="/assets/my_naai.png" alt={profile.salonName || 'Salon'} /></div><div className="salon-profile-copy"><span className="eyebrow">SALON PARTNER</span><h2>{profile.salonName || 'Your salon'}</h2><p><MapPin size={14} /> {profile.addressLine1 || profile.city || 'Add your salon address'}</p><span className={cx('account-status', status.isOpen ? 'open' : 'closed')}><i /> {status.isOpen ? 'Open for bookings' : 'Closed for bookings'}</span></div><Button size="small" variant="secondary" onClick={() => navigate('editProfile', { profileData: profile })}><Pencil size={15} /> Edit</Button></section><div className="salon-live-status"><div><span className="eyebrow">BOOKING STATUS</span><strong>{status.isOpen ? 'Customers can book you now' : 'Your salon is currently closed'}</strong><small>Toggle this when you are ready to take the next appointment.</small></div><Toggle checked={isOpen} onChange={toggleOpen} label={isOpen ? 'Open' : 'Closed'} /></div><div className="salon-profile-stats"><div><strong>{profile.services?.length || 0}</strong><span>Services</span></div><div><strong>{profile.barbers?.length || 0}</strong><span>Specialists</span></div><div><strong>{Number(profile.ratingAverage || 0).toFixed(1)}</strong><span>Rating</span></div></div><div className="account-card partner-menu">{menus.map(item => <button className="account-menu-row" key={item.label} onClick={item.action || (() => navigate(item.route, item.route === 'editProfile' ? { profileData: profile } : {}))}><span className="account-menu-icon"><item.icon size={18} /></span><span><strong>{item.label}</strong><small>{item.caption}</small></span><ChevronRight size={17} /></button>)}</div><p className="version-label">MyNaai partner portal · 1.0</p></div>;
 }
 
+function getEditorBusinessHour(value = {}) {
+  return Array.isArray(value) ? value[0] || {} : value || {};
+}
+
+function hasCoordinate(value) {
+  return value !== '' && value !== null && value !== undefined && Number.isFinite(Number(value));
+}
+
+function editorTime(value, fallback) {
+  const text = String(value || fallback).slice(0, 5);
+  return /^\d{2}:\d{2}$/.test(text) ? text : fallback;
+}
+
+function apiTime(value) {
+  return `${String(value || '09:00').slice(0, 5)}:00`;
+}
+
+function isNewEditorRecord(id) {
+  const value = String(id || '');
+  return !value || value.startsWith('new-') || value.startsWith('existing-');
+}
+
 export function EditSalonProfileScreen({ params, session, navigate, notify, onSessionUpdate }) {
-  const initial = params?.profileData || (session.demo ? DEMO_SALON_PROFILE : session.user || {});
+  const routeProfile = params?.profileData && typeof params.profileData === 'object' ? params.profileData : null;
+  const initial = routeProfile || (session.demo ? DEMO_SALON_PROFILE : { ...(session.user || {}), ...(session.user?.salon || {}) });
+  const isOnboarding = params?.isOnboarding === true || params?.isOnboarding === 'true' || session.isNewSalon;
+  const salonId = session.userId || initial.salonId || initial.salon?.salonId || '';
   const [profile, setProfile] = useState(initial);
   const [salonName, setSalonName] = useState(initial.salonName || '');
   const [ownerName, setOwnerName] = useState(initial.ownerName || '');
-  const [address, setAddress] = useState(initial.addressLine1 || '');
-  const [genderType, setGenderType] = useState(initial.genderType || 'UNISEX');
-  const [openTime, setOpenTime] = useState((initial.businessHours?.[0]?.openingTime || '09:00:00').slice(0, 5));
-  const [closeTime, setCloseTime] = useState((initial.businessHours?.[0]?.closingTime || '21:00:00').slice(0, 5));
-  const [holiday, setHoliday] = useState(initial.businessHours?.[0]?.holidayDays?.[0] || '');
-  const [images, setImages] = useState(initial.imagesArray || (initial.imageUrl ? [initial.imageUrl] : []));
+  const [phoneNumber, setPhoneNumber] = useState(initial.phoneNumber || '');
+  const [email, setEmail] = useState(initial.email || '');
+  const [addressLine1, setAddressLine1] = useState(initial.addressLine1 || initial.address || '');
+  const [addressLine2, setAddressLine2] = useState(initial.addressLine2 || '');
+  const [city, setCity] = useState(initial.city || '');
+  const [state, setState] = useState(initial.state || '');
+  const [pincode, setPincode] = useState(initial.pincode === undefined || initial.pincode === null ? '' : String(initial.pincode));
+  const [genderType, setGenderType] = useState(String(initial.genderType || '').toUpperCase());
+  const [agentCode, setAgentCode] = useState(initial.agentCode || '');
+  const [latitude, setLatitude] = useState(hasCoordinate(initial.latitude) ? Number(initial.latitude) : null);
+  const [longitude, setLongitude] = useState(hasCoordinate(initial.longitude) ? Number(initial.longitude) : null);
+  const initialHour = getEditorBusinessHour(initial.businessHours);
+  const [openTime, setOpenTime] = useState(editorTime(initialHour.openingTime, '09:00'));
+  const [closeTime, setCloseTime] = useState(editorTime(initialHour.closingTime, '21:00'));
+  const initialHoliday = initialHour.holidayDays?.[0];
+  const [holiday, setHoliday] = useState(initialHoliday === undefined || initialHoliday === null || initialHoliday === '' ? '' : String(initialHoliday));
+  const [images, setImages] = useState((initial.imagesArray || (initial.imageUrl ? [initial.imageUrl] : [])).filter(Boolean).slice(0, 4));
   const [services, setServices] = useState((initial.services || []).map(normalizeService));
   const [barbers, setBarbers] = useState((initial.barbers || []).map(normalizeBarber));
+  const [isActive, setIsActive] = useState(initial.isActive !== false);
   const [saving, setSaving] = useState(false);
-  const [loading, setLoading] = useState(!session.demo && !params?.profileData);
+  const [loading, setLoading] = useState(!session.demo && !routeProfile);
+  const [locationLoading, setLocationLoading] = useState(false);
+  const [locationError, setLocationError] = useState('');
+
+  const populate = useCallback(data => {
+    const next = data || {};
+    const businessHour = getEditorBusinessHour(next.businessHours);
+    setProfile(next);
+    setSalonName(next.salonName || '');
+    setOwnerName(next.ownerName || '');
+    setPhoneNumber(next.phoneNumber || '');
+    setEmail(next.email || '');
+    setAddressLine1(next.addressLine1 || next.address || '');
+    setAddressLine2(next.addressLine2 || '');
+    setCity(next.city || '');
+    setState(next.state || '');
+    setPincode(next.pincode === undefined || next.pincode === null ? '' : String(next.pincode));
+    setGenderType(String(next.genderType || '').toUpperCase());
+    setAgentCode(next.agentCode || '');
+    setLatitude(hasCoordinate(next.latitude) ? Number(next.latitude) : null);
+    setLongitude(hasCoordinate(next.longitude) ? Number(next.longitude) : null);
+    setOpenTime(editorTime(businessHour.openingTime, '09:00'));
+    setCloseTime(editorTime(businessHour.closingTime, '21:00'));
+    const nextHoliday = businessHour.holidayDays?.[0];
+    setHoliday(nextHoliday === undefined || nextHoliday === null || nextHoliday === '' ? '' : String(nextHoliday));
+    setImages((next.imagesArray || (next.imageUrl ? [next.imageUrl] : [])).filter(Boolean).slice(0, 4));
+    setServices((next.services || []).map(normalizeService));
+    setBarbers((next.barbers || []).map(normalizeBarber));
+    setIsActive(next.isActive !== false);
+  }, []);
+
   useEffect(() => {
-    if (session.demo || params?.profileData) return;
-    api.salonProfile({ salonId: session.userId }).then(response => { if (response?.status === 'SUCCESS') { const data = response.data; setProfile(data); setSalonName(data.salonName || ''); setOwnerName(data.ownerName || ''); setAddress(data.addressLine1 || ''); setGenderType(data.genderType || 'UNISEX'); setOpenTime((data.businessHours?.[0]?.openingTime || '09:00').slice(0, 5)); setCloseTime((data.businessHours?.[0]?.closingTime || '21:00').slice(0, 5)); setHoliday(data.businessHours?.[0]?.holidayDays?.[0] || ''); setImages(data.imagesArray || (data.imageUrl ? [data.imageUrl] : [])); setServices((data.services || []).map(normalizeService)); setBarbers((data.barbers || []).map(normalizeBarber)); } }).catch(error => notify?.('error', getErrorMessage(error, 'Unable to load profile.'))).finally(() => setLoading(false));
-  }, [notify, params?.profileData, session.demo, session.userId]);
-  const addImages = event => { const files = Array.from(event.target.files || []).slice(0, Math.max(0, 4 - images.length)); setImages(current => [...current, ...files.map(file => ({ file, preview: URL.createObjectURL(file) }))]); event.target.value = ''; };
+    if (session.demo || routeProfile) return undefined;
+    let active = true;
+    setLoading(true);
+    api.salonProfile({ salonId }).then(response => {
+      if (!active) return;
+      if (response?.status !== 'SUCCESS') throw new Error(response?.message || 'Unable to load profile.');
+      populate(response.data);
+    }).catch(error => {
+      if (active) notify?.('error', getErrorMessage(error, 'Unable to load profile.'));
+    }).finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [notify, populate, routeProfile, salonId, session.demo]);
+
+  const detectLocation = useCallback(async () => {
+    setLocationLoading(true);
+    setLocationError('');
+    try {
+      const current = await getBrowserLocation();
+      if (!current || !hasCoordinate(current.latitude) || !hasCoordinate(current.longitude)) {
+        setLocationError('Location permission is unavailable. Allow location for this site, then try again.');
+        return;
+      }
+      setLatitude(Number(current.latitude));
+      setLongitude(Number(current.longitude));
+      setLocationError('');
+    } catch (error) {
+      setLocationError(getErrorMessage(error, 'Unable to detect the current salon location.'));
+    } finally {
+      setLocationLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!session.demo && !loading && (!hasCoordinate(latitude) || !hasCoordinate(longitude))) detectLocation();
+  }, [detectLocation, latitude, loading, longitude, session.demo]);
+
+  const addImages = event => {
+    const files = Array.from(event.target.files || []).slice(0, Math.max(0, 4 - images.length));
+    setImages(current => [...current, ...files.map(file => ({ file, preview: URL.createObjectURL(file) }))]);
+    event.target.value = '';
+  };
   const removeImage = index => setImages(current => current.filter((_, itemIndex) => itemIndex !== index));
   const updateService = (id, key, value) => setServices(current => current.map(item => item.id === id ? { ...item, [key]: value } : item));
   const updateBarber = (id, key, value) => setBarbers(current => current.map(item => item.id === id ? { ...item, [key]: value } : item));
-  const removeService = async id => { if (String(id).startsWith('new-')) return setServices(current => current.filter(item => item.id !== id)); if (!session.demo && window.confirm('Delete this service?')) { try { await api.deleteSalonService(id); setServices(current => current.filter(item => item.id !== id)); notify?.('success', 'Service deleted.'); } catch (error) { notify?.('error', getErrorMessage(error, 'Could not delete service.')); } } else if (session.demo) setServices(current => current.filter(item => item.id !== id)); };
-  const removeBarber = async id => { if (String(id).startsWith('new-')) return setBarbers(current => current.filter(item => item.id !== id)); if (!session.demo && window.confirm('Delete this specialist?')) { try { await api.deleteSalonBarber(id); setBarbers(current => current.filter(item => item.id !== id)); notify?.('success', 'Specialist deleted.'); } catch (error) { notify?.('error', getErrorMessage(error, 'Could not delete specialist.')); } } else if (session.demo) setBarbers(current => current.filter(item => item.id !== id)); };
-  const uploadImage = async image => { if (!image?.file) return image; const response = await api.uploadImage(image.file); return response?.url || response?.data?.url || response?.path || ''; };
+  const addService = () => setServices(current => [...current, normalizeService({ id: `new-service-${Date.now()}` }, current.length)]);
+  const addBarber = () => setBarbers(current => [...current, normalizeBarber({ id: `new-barber-${Date.now()}` }, current.length)]);
+  const loadDefaultServices = () => {
+    const defaults = DEFAULT_SERVICES[String(genderType || '').toLowerCase()] || [];
+    if (!defaults.length) return notify?.('error', 'Choose a salon type before loading default services.');
+    setServices(defaults.map((item, index) => ({ ...normalizeService(item, index), id: `new-service-${Date.now()}-${index}` })));
+  };
+  const removeService = async id => {
+    if (isNewEditorRecord(id) || session.demo) return setServices(current => current.filter(item => item.id !== id));
+    if (!window.confirm('Delete this service?')) return;
+    try {
+      const response = await api.deleteSalonService(id);
+      if (response?.status && response.status !== 'SUCCESS') throw new Error(response.message || 'Could not delete service.');
+      setServices(current => current.filter(item => item.id !== id));
+      notify?.('success', 'Service deleted.');
+    } catch (error) { notify?.('error', getErrorMessage(error, 'Could not delete service.')); }
+  };
+  const removeBarber = async id => {
+    if (isNewEditorRecord(id) || session.demo) return setBarbers(current => current.filter(item => item.id !== id));
+    if (!window.confirm('Delete this specialist?')) return;
+    try {
+      const response = await api.deleteSalonBarber(id);
+      if (response?.status && response.status !== 'SUCCESS') throw new Error(response.message || 'Could not delete specialist.');
+      setBarbers(current => current.filter(item => item.id !== id));
+      notify?.('success', 'Specialist deleted.');
+    } catch (error) { notify?.('error', getErrorMessage(error, 'Could not delete specialist.')); }
+  };
+
+  const uploadImage = async image => {
+    if (!image?.file) return typeof image === 'string' ? image : '';
+    const response = await api.uploadImage(image.file);
+    return response?.url || response?.data?.url || response?.path || response?.data?.path || '';
+  };
+
+  const validate = () => {
+    if (!salonId) return 'Salon ID is unavailable. Please sign in again.';
+    if (!ownerName.trim()) return 'Please enter the salon owner name.';
+    if (!salonName.trim()) return 'Please enter the salon name.';
+    if (phoneNumber.replace(/\D/g, '').length !== 10) return 'Please enter a valid 10-digit mobile number.';
+    if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) return 'Please enter a valid email address.';
+    if (!genderType) return 'Please select the salon type.';
+    if (!addressLine1.trim()) return 'Please enter the salon address.';
+    if (agentCode.trim() && !/^\d{10}$/.test(agentCode.trim())) return 'Agent code must be exactly 10 digits or blank.';
+    if (pincode.trim() && !/^\d{6}$/.test(pincode.trim())) return 'Pincode must contain 6 digits.';
+    if (!hasCoordinate(latitude) || !hasCoordinate(longitude) || Number(latitude) < -90 || Number(latitude) > 90 || Number(longitude) < -180 || Number(longitude) > 180) return 'Detect and save the salon location before continuing.';
+    if (openTime === closeTime) return 'Opening and closing time cannot be the same.';
+    if (!services.length) return 'Please add at least one salon service.';
+    if (services.some(item => !item.name.trim() || item.price === '' || Number(item.price) < 0 || !item.duration || Number(item.duration) <= 0)) return 'Enter a valid service name, price and duration for every service.';
+    if (barbers.some(item => !item.name.trim())) return 'Please enter the name of every specialist.';
+    return '';
+  };
+
   const save = async event => {
     event.preventDefault();
-    if (!salonName.trim() || !address.trim()) return notify?.('error', 'Salon name and address are required.');
+    const validationError = validate();
+    if (validationError) return notify?.('error', validationError);
     setSaving(true);
     try {
       const uploadedImages = [];
-      for (const image of images) { const path = await uploadImage(image); if (path || typeof image === 'string') uploadedImages.push(path || image); }
-      const businessHours = [{ openingTime: `${openTime}:00`, closingTime: `${closeTime}:00`, holidayDays: holiday ? [holiday] : [], breakStartTime: null, breakEndTime: null }];
-      const servicePayload = services.filter(item => item.name.trim()).map(item => ({ ...(String(item.id).startsWith('new-') ? {} : { serviceId: item.id }), serviceName: item.name.trim(), price: String(item.price || 0), durationMinutes: Number(item.duration) || 30, description: item.description || 'No description' }));
-      const barberPayload = barbers.filter(item => item.name.trim()).map(item => ({ ...(String(item.id).startsWith('new-') ? {} : { barberId: item.id }), fullName: item.name.trim(), profileImageUrl: item.image || null, ratingAverage: String(item.rating || '0.0'), isAvailable: item.isAvailable }));
-      const payload = { salonId: session.userId, salonName: salonName.trim(), ownerName: ownerName.trim(), addressLine1: address.trim(), genderType, imagesArray: uploadedImages, imageUrl: uploadedImages[0] || null, latitude: profile.latitude, longitude: profile.longitude, businessHours, services: servicePayload, barbers: barberPayload };
-      if (!session.demo) { const response = await api.updateSalonProfile(payload); if (response?.status && response.status !== 'SUCCESS') throw new Error(response.message || 'Could not update profile'); }
-      const next = { ...profile, ...payload, services: servicePayload, barbers: barberPayload }; onSessionUpdate?.(next); notify?.('success', 'Salon profile saved.'); navigate('account');
-    } catch (error) { notify?.('error', getErrorMessage(error, 'Could not save salon profile.')); } finally { setSaving(false); }
+      for (const image of images) {
+        const path = await uploadImage(image);
+        if (path) uploadedImages.push(path);
+      }
+      const existingServices = services.filter(item => !isNewEditorRecord(item.id)).map(item => ({
+        serviceId: item.serviceId || item.id,
+        serviceName: item.name.trim(),
+        durationMinutes: Number(item.duration) || 60,
+        price: String(item.price || 0),
+        description: item.description?.trim() || 'Salon service',
+      }));
+      const newServices = services.filter(item => isNewEditorRecord(item.id)).map(item => ({
+        serviceName: item.name.trim(),
+        durationMinutes: Number(item.duration) || 60,
+        price: String(item.price || 0),
+        description: item.description?.trim() || 'Salon service',
+      }));
+      const existingBarbers = barbers.filter(item => !isNewEditorRecord(item.id)).map(item => ({
+        barberId: item.barberId || item.id,
+        fullName: item.name.trim(),
+        profileImageUrl: item.image || null,
+        ratingAverage: String(item.rating || '0.0'),
+        isAvailable: item.isAvailable !== false,
+      }));
+      const newBarbers = barbers.filter(item => isNewEditorRecord(item.id)).map(item => ({
+        fullName: item.name.trim(),
+        profileImageUrl: item.image || null,
+        ratingAverage: String(item.rating || '0.0'),
+        isAvailable: item.isAvailable !== false,
+      }));
+      const existingBusinessHour = getEditorBusinessHour(profile.businessHours);
+      const businessHour = {
+        openingTime: apiTime(openTime),
+        closingTime: apiTime(closeTime),
+        breakStartTime: existingBusinessHour.breakStartTime || null,
+        breakEndTime: existingBusinessHour.breakEndTime || null,
+        holidayDays: holiday === '' ? [] : [Number.isFinite(Number(holiday)) ? Number(holiday) : holiday],
+      };
+      if (existingBusinessHour.scheduleId) businessHour.scheduleId = existingBusinessHour.scheduleId;
+      const payload = {
+        salonId,
+        ownerName: ownerName.trim(),
+        salonName: salonName.trim(),
+        phoneNumber: phoneNumber.replace(/\D/g, ''),
+        email: email.trim() || null,
+        genderType,
+        agentCode: agentCode.trim() || null,
+        addressLine1: addressLine1.trim(),
+        addressLine2: addressLine2.trim() || null,
+        city: city.trim(),
+        state: state.trim(),
+        pincode: pincode.trim(),
+        latitude: Number(latitude),
+        longitude: Number(longitude),
+        imageUrl: uploadedImages[0] || null,
+        imagesArray: uploadedImages,
+        existingServices,
+        newServices,
+        existingBarbers,
+        newBarbers,
+        businessHours: [businessHour],
+        isActive,
+        profileCompleted: true,
+      };
+      if (!session.demo) {
+        const response = await api.updateSalonProfile(payload);
+        if (response?.status && response.status !== 'SUCCESS') throw new Error(response.message || 'Could not update profile.');
+      }
+      const next = { ...profile, ...payload, services: [...existingServices, ...newServices], barbers: [...existingBarbers, ...newBarbers] };
+      setProfile(next);
+      localStorage.setItem('profileCompleted', 'true');
+      if (isOnboarding) localStorage.setItem('isNewSalon', 'false');
+      onSessionUpdate?.(next, isOnboarding ? { isNewSalon: false } : undefined);
+      notify?.('success', 'Salon profile saved.');
+      if (isOnboarding) navigate('account', {}, { replace: true }); else navigate(-1);
+    } catch (error) {
+      notify?.('error', getErrorMessage(error, 'Could not save salon profile.'));
+    } finally { setSaving(false); }
   };
-  if (loading) return <div className="screen"><PageHeader title="Edit salon profile" onBack={() => navigate(-1)} /><div className="account-loading"><Spinner label="Loading profile…" /></div></div>;
-  return <div className="screen edit-salon-screen"><PageHeader title="Edit salon profile" subtitle="Give customers a clear picture of your business." onBack={() => navigate(-1)} /><form className="profile-editor" onSubmit={save}><section className="editor-section"><div className="editor-section-heading"><div><span className="eyebrow">01 · BASICS</span><h2>Salon details</h2></div><Store size={20} /></div><div className="form-two-col"><Field label="Salon name"><input value={salonName} onChange={event => setSalonName(event.target.value)} placeholder="Your salon name" /></Field><Field label="Owner name"><input value={ownerName} onChange={event => setOwnerName(event.target.value)} placeholder="Owner name" /></Field></div><Field label="Address"><textarea value={address} onChange={event => setAddress(event.target.value)} placeholder="Street, area, city" rows="3" /></Field><SelectField label="Salon type" value={genderType} onChange={event => setGenderType(event.target.value)} options={[{ value: 'MALE', label: 'Male' }, { value: 'FEMALE', label: 'Female' }, { value: 'UNISEX', label: 'Unisex' }]} /></section><section className="editor-section"><div className="editor-section-heading"><div><span className="eyebrow">02 · ATMOSPHERE</span><h2>Salon photos</h2><p>Up to 4 photos · show your space at its best.</p></div><ImagePlus size={20} /></div><div className="editor-photo-grid">{images.map((image, index) => <div className="editor-photo" key={`${typeof image === 'string' ? image : image.preview}-${index}`}><ImageWithFallback src={typeof image === 'string' ? image : image.preview} fallback="/assets/my_naai.png" alt="Salon preview" /><button type="button" onClick={() => removeImage(index)} aria-label="Remove photo"><X size={15} /></button></div>)}{images.length < 4 && <label className="add-photo"><Plus size={20} /><span>Add photo</span><input type="file" accept="image/*" multiple onChange={addImages} /></label>}</div></section><section className="editor-section"><div className="editor-section-heading"><div><span className="eyebrow">03 · AVAILABILITY</span><h2>Opening hours</h2></div><Clock3 size={20} /></div><div className="form-two-col"><Field label="Opens"><input type="time" value={openTime} onChange={event => setOpenTime(event.target.value)} /></Field><Field label="Closes"><input type="time" value={closeTime} onChange={event => setCloseTime(event.target.value)} /></Field></div><SelectField label="Weekly off" value={holiday} onChange={event => setHoliday(event.target.value)} placeholder="No weekly off" options={['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].map(day => ({ value: day, label: day }))} /></section><section className="editor-section"><div className="editor-section-heading"><div><span className="eyebrow">04 · MENU</span><h2>Services</h2><p>Keep pricing and duration up to date.</p></div><button type="button" className="add-inline-button" onClick={() => setServices(current => [...current, normalizeService({ serviceId: `new-service-${Date.now()}` }, current.length)])}><Plus size={15} /> Add service</button></div><div className="editor-items">{services.map(item => <div className="editor-item" key={item.id}><div className="editor-item-title"><Scissors size={15} /><strong>{item.name || 'New service'}</strong><button type="button" onClick={() => removeService(item.id)} aria-label="Delete service"><Trash2 size={15} /></button></div><div className="form-three-col"><input value={item.name} onChange={event => updateService(item.id, 'name', event.target.value)} placeholder="Service name" /><input type="number" min="0" value={item.price} onChange={event => updateService(item.id, 'price', event.target.value)} placeholder="Price" /><input type="number" min="5" value={item.duration} onChange={event => updateService(item.id, 'duration', event.target.value)} placeholder="Minutes" /></div></div>)}</div></section><section className="editor-section"><div className="editor-section-heading"><div><span className="eyebrow">05 · PEOPLE</span><h2>Specialists</h2><p>Let customers choose their favourite chair.</p></div><button type="button" className="add-inline-button" onClick={() => setBarbers(current => [...current, normalizeBarber({ barberId: `new-barber-${Date.now()}` }, current.length)])}><Plus size={15} /> Add specialist</button></div><div className="editor-items">{barbers.map(item => <div className="editor-item barber-editor-item" key={item.id}><div className="editor-item-title"><div className="mini-avatar">{getInitials(item.name || 'New')}</div><strong>{item.name || 'New specialist'}</strong><button type="button" onClick={() => removeBarber(item.id)} aria-label="Delete specialist"><Trash2 size={15} /></button></div><div className="form-two-col"><input value={item.name} onChange={event => updateBarber(item.id, 'name', event.target.value)} placeholder="Full name" /><input type="number" min="0" max="5" step="0.1" value={item.rating} onChange={event => updateBarber(item.id, 'rating', event.target.value)} placeholder="Rating" /></div><Toggle checked={item.isAvailable} onChange={value => updateBarber(item.id, 'isAvailable', value)} label={item.isAvailable ? 'Available' : 'Away'} /></div>)}</div></section><div className="editor-actions"><Button type="button" variant="secondary" onClick={() => navigate(-1)}>Cancel</Button><Button type="submit" loading={saving}>Save profile <Check size={17} /></Button></div></form></div>;
+
+  if (loading) return <div className="screen"><PageHeader title="Edit salon profile" /><div className="account-loading"><Spinner label="Loading profile…" /></div></div>;
+  const hasLocation = hasCoordinate(latitude) && hasCoordinate(longitude);
+  return <div className="screen edit-salon-screen"><PageHeader title={isOnboarding ? 'Complete salon profile' : 'Edit salon profile'} subtitle={isOnboarding ? 'Add the details customers need before you open your dashboard.' : 'Give customers a clear picture of your business.'} onBack={isOnboarding ? undefined : () => navigate(-1)} /><form className="profile-editor" onSubmit={save}>
+    <section className="editor-section"><div className="editor-section-heading"><div><span className="eyebrow">01 · BASICS</span><h2>Salon details</h2><p>These details are shown to customers and used for booking.</p></div><Store size={20} /></div><div className="form-two-col"><Field label="Salon name"><input value={salonName} onChange={event => setSalonName(event.target.value)} placeholder="Your salon name" /></Field><Field label="Owner name"><input value={ownerName} onChange={event => setOwnerName(event.target.value)} placeholder="Owner name" /></Field></div><div className="form-two-col"><Field label="Phone number"><input inputMode="numeric" value={phoneNumber} onChange={event => setPhoneNumber(event.target.value.replace(/\D/g, '').slice(0, 10))} placeholder="10-digit mobile number" /></Field><Field label="Email" hint="Optional"><input type="email" value={email} onChange={event => setEmail(event.target.value)} placeholder="owner@example.com" /></Field></div><SelectField label="Salon type" value={genderType} onChange={event => setGenderType(event.target.value)} options={[{ value: 'MALE', label: 'Male' }, { value: 'FEMALE', label: 'Female' }, { value: 'UNISEX', label: 'Unisex' }]} placeholder="Select salon type" /><Field label="Agent code" hint="Optional · exactly 10 digits"><input inputMode="numeric" maxLength="10" value={agentCode} onChange={event => setAgentCode(event.target.value.replace(/\D/g, '').slice(0, 10))} placeholder="Optional agent code" /></Field><div className="switch-form-row"><span><strong>Accept new bookings</strong><small>Keep the salon active in customer discovery.</small></span><Toggle checked={isActive} onChange={setIsActive} /></div></section>
+    <section className="editor-section"><div className="editor-section-heading"><div><span className="eyebrow">02 · ADDRESS & LOCATION</span><h2>Where customers can find you</h2><p>Accurate coordinates power nearby salon sorting.</p></div><MapPin size={20} /></div><Field label="Address line 1"><textarea value={addressLine1} onChange={event => setAddressLine1(event.target.value)} placeholder="Street, area, building" rows="3" /></Field><Field label="Address line 2" hint="Optional"><input value={addressLine2} onChange={event => setAddressLine2(event.target.value)} placeholder="Landmark or nearby place" /></Field><div className="form-three-col editor-address-grid"><Field label="City"><input value={city} onChange={event => setCity(event.target.value)} placeholder="City" /></Field><Field label="State"><input value={state} onChange={event => setState(event.target.value)} placeholder="State" /></Field><Field label="Pincode"><input inputMode="numeric" maxLength="6" value={pincode} onChange={event => setPincode(event.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="Pincode" /></Field></div><div className={cx('editor-location-status', hasLocation ? 'location-ready' : 'location-missing')}><MapPin size={17} /><span><strong>{hasLocation ? 'Location saved' : 'Location required'}</strong><small>{hasLocation ? `${Number(latitude).toFixed(6)}, ${Number(longitude).toFixed(6)}` : locationError || 'Allow location access so nearby customers can discover this salon.'}</small></span></div><Button type="button" size="small" variant="secondary" onClick={detectLocation} loading={locationLoading}><MapPin size={15} /> Detect current location</Button></section>
+    <section className="editor-section"><div className="editor-section-heading"><div><span className="eyebrow">03 · ATMOSPHERE</span><h2>Salon photos</h2><p>Up to 4 photos · the first becomes your main image.</p></div><ImagePlus size={20} /></div><div className="editor-photo-grid">{images.map((image, index) => <div className="editor-photo" key={`${typeof image === 'string' ? image : image.preview}-${index}`}><ImageWithFallback src={typeof image === 'string' ? image : image.preview} fallback="/assets/my_naai.png" alt="Salon preview" /><button type="button" onClick={() => removeImage(index)} aria-label="Remove photo"><X size={15} /></button></div>)}{images.length < 4 && <label className="add-photo"><Plus size={20} /><span>Add photo</span><input type="file" accept="image/*" multiple onChange={addImages} /></label>}</div></section>
+    <section className="editor-section"><div className="editor-section-heading"><div><span className="eyebrow">04 · AVAILABILITY</span><h2>Opening hours</h2><p>Set when customers can request an appointment.</p></div><Clock3 size={20} /></div><div className="form-two-col"><Field label="Opens"><input type="time" value={openTime} onChange={event => setOpenTime(event.target.value)} /></Field><Field label="Closes"><input type="time" value={closeTime} onChange={event => setCloseTime(event.target.value)} /></Field></div><SelectField label="Weekly off" value={holiday} onChange={event => setHoliday(event.target.value)} placeholder="No weekly off" options={['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].map((day, index) => ({ value: String(index), label: day }))} /></section>
+    <section className="editor-section"><div className="editor-section-heading"><div><span className="eyebrow">05 · MENU</span><h2>Services</h2><p>Every service needs a name, price and duration.</p></div><div className="editor-heading-actions"><button type="button" className="add-inline-button" onClick={loadDefaultServices}><RefreshCw size={14} /> Defaults</button><button type="button" className="add-inline-button" onClick={addService}><Plus size={15} /> Add service</button></div></div><div className="editor-items">{services.map(item => <div className="editor-item" key={item.id}><div className="editor-item-title"><Scissors size={15} /><strong>{item.name || 'New service'}</strong><button type="button" onClick={() => removeService(item.id)} aria-label="Delete service"><Trash2 size={15} /></button></div><div className="form-three-col"><input value={item.name} onChange={event => updateService(item.id, 'name', event.target.value)} placeholder="Service name" /><input type="number" min="0" value={item.price} onChange={event => updateService(item.id, 'price', event.target.value)} placeholder="Price" /><input type="number" min="5" value={item.duration} onChange={event => updateService(item.id, 'duration', event.target.value)} placeholder="Minutes" /></div><textarea className="editor-description" value={item.description} onChange={event => updateService(item.id, 'description', event.target.value)} placeholder="Short service description" rows="2" /></div>)}</div>{!services.length && <div className="editor-empty">No services added yet. Load defaults or add one manually.</div>}</section>
+    <section className="editor-section"><div className="editor-section-heading"><div><span className="eyebrow">06 · PEOPLE</span><h2>Specialists</h2><p>Add the people customers can choose during booking.</p></div><button type="button" className="add-inline-button" onClick={addBarber}><Plus size={15} /> Add specialist</button></div><div className="editor-items">{barbers.map(item => <div className="editor-item barber-editor-item" key={item.id}><div className="editor-item-title"><div className="mini-avatar">{getInitials(item.name || 'New')}</div><strong>{item.name || 'New specialist'}</strong><button type="button" onClick={() => removeBarber(item.id)} aria-label="Delete specialist"><Trash2 size={15} /></button></div><div className="form-two-col"><input value={item.name} onChange={event => updateBarber(item.id, 'name', event.target.value)} placeholder="Full name" /><input type="number" min="0" max="5" step="0.1" value={item.rating} onChange={event => updateBarber(item.id, 'rating', event.target.value)} placeholder="Rating" /></div><Toggle checked={item.isAvailable} onChange={value => updateBarber(item.id, 'isAvailable', value)} label={item.isAvailable ? 'Available' : 'Away'} /></div>)}</div>{!barbers.length && <div className="editor-empty">No specialists added. Customers can still choose any available chair.</div>}</section>
+    <div className="editor-actions"><Button type="button" variant="secondary" onClick={() => navigate(-1)} disabled={isOnboarding}>Cancel</Button><Button type="submit" loading={saving}>{isOnboarding ? 'Save and continue' : 'Save profile'} <Check size={17} /></Button></div>
+  </form></div>;
 }
 
 const PARTNER_PLANS = [{ id: 'trial_2_months', title: 'Introductory', price: 299, duration: '2 months · 60 days', note: 'A gentle start for new partners' }, { id: 'monthly', title: 'Monthly plan', price: 199, duration: 'Per month', note: 'Flexible month-to-month growth' }, { id: 'quarterly', title: 'Quarterly plan', price: 499, duration: '3 months · 90 days', note: 'Best value for busy salons', best: true }];
@@ -259,6 +495,7 @@ export function SubscriptionScreen({ params = {}, session, navigate, notify, onA
   const continuePlan = async () => {
     const plan = plans.find(item => item.id === selected);
     if (!plan) return notify?.('error', 'Please choose a plan to continue.');
+    if (isRegistration && !String(registrationData?.deviceToken || '').trim()) return notify?.('error', 'Browser notifications must be enabled before salon registration can continue.');
     setLoading(true);
     try {
       if (session?.demo && !isRegistration) { notify?.('success', `${plan.title} selected. In live mode this opens Razorpay.`); navigate('account'); return; }

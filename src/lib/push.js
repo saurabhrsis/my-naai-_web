@@ -38,7 +38,12 @@ async function getPushServiceWorker() {
   if (!registrationPromise) {
     registrationPromise = navigator.serviceWorker.register(`/firebase-messaging-sw.js?${queryConfig()}`, {
       scope: '/firebase-cloud-messaging-push-scope',
-    }).catch(() => null);
+    }).catch(() => {
+      // Allow the authenticated retry action to recover from a transient
+      // service-worker/Firebase setup failure instead of caching null forever.
+      registrationPromise = undefined;
+      return null;
+    });
   }
   return registrationPromise;
 }

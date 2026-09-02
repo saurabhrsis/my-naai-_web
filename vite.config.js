@@ -8,7 +8,7 @@ export default defineConfig({
     allowedHosts: true,
     proxy: {
       '/api': { target: 'https://backend.mynaai.in', changeOrigin: true, secure: false },
-      '/getfiles': { target: 'https://backend.mynaai.in', changeOrigin: true, secure: false },
+      '/getFiles': { target: 'https://backend.mynaai.in', changeOrigin: true, secure: false },
       '/socket.io': { target: 'https://backend.mynaai.in', changeOrigin: true, secure: false, ws: true },
     },
   },

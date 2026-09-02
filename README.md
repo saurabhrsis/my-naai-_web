@@ -52,4 +52,6 @@ The complete portal behavior and operational notes are in [`docs/MY-NAAI-WEB-POR
 - `public/firebase-messaging-sw.js` receives Firebase background messages and maps notification clicks to the matching hash route (`#/bookings`, `#/delay`, or `#/bookingRequest`).
 - Foreground Firebase messages use the same route mapping without reloading the app.
 - Salon booking requests offer +10/+20 minute time updates; the mobile-compatible owner-action API sends the delay notification to the customer.
+- Customer discovery sends browser latitude/longitude to `userSalonList`, sorts known distances nearest-first (while keeping the API list when location is unavailable), and offers a location retry.
+- An incomplete salon login is locked to the full profile editor until the mobile-compatible `update-salon` body succeeds with valid contact, address, coordinates, hours, services and specialists.
 - The install action appears in the desktop partner sidebar when the browser exposes the install prompt.

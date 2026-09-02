@@ -38,7 +38,7 @@ export function getFileUrl(path) {
   if (/^(https?:|data:|blob:)/i.test(path)) return path;
   if (path.startsWith('/assets/')) return path;
   if (path.startsWith('/')) return `${API_BASE_URL}${path}`;
-  return `${API_BASE_URL}/getfiles/${path.replace(/^\/+/, '')}`;
+  return `${API_BASE_URL}/getFiles/${path.replace(/^\/+/, '')}`;
 }
 
 function queryString(params = {}) {
@@ -110,14 +110,24 @@ export const api = {
   userProfile: ({ userId }) => get('/api/users/profile', { params: { userId } }),
   updateProfile: payload => post('/api/users/update', payload),
   userSalonList: payload => post('/api/salons/salon-list', payload),
-  bookedSalonList: ({ userId, page = 1, searchString = '' }) => post('/api/booking/get-list', { userId, page, searchString }),
+  bookedSalonList: ({ userId }) => post('/api/booking/get-list', { userId }),
   userAds: () => get('/api/advertisement/get-advertisement'),
   toggleSaveSalon: payload => post('/api/users/toggle-saved-salon', payload),
   saveSalon: payload => post('/api/users/save-salon', payload),
   removeSalon: payload => post('/api/users/remove-salon', payload),
   userProductList: payload => post('/api/products/get-all-salons-products-list', payload),
-  userNotificationList: payload => post('/api/notifications/get-user-notification-list', payload),
-  userNotificationCount: payload => get('/api/notifications/get-user-notification-count', { params: payload }),
+  // Legacy mobile helpers choose the endpoint from the authenticated role.
+  // Keep the explicit customer alias below for screens that must not depend on
+  // ambient storage (this is also present in communication.js).
+  userNotificationList: payload => {
+    const role = String(payload?.userType || localStorage.getItem('userType') || '').toUpperCase();
+    return post(role === 'SALON' ? '/api/notifications/get-salon-notification-list' : '/api/notifications/get-user-notification-list', payload);
+  },
+  userNotificationListUser: payload => post('/api/notifications/get-user-notification-list', payload),
+  userNotificationCount: payload => {
+    const role = String(payload?.userType || localStorage.getItem('userType') || '').toUpperCase();
+    return get(role === 'SALON' ? '/api/notifications/get-notification-count' : '/api/notifications/get-user-notification-count', { params: payload });
+  },
 
   // Booking API.
   salonByIdInfo: ({ salonId }) => post('/api/salons/get-salon-by-id', { salonId }),
@@ -146,7 +156,7 @@ export const api = {
   editSalonProfile: payload => post('/api/salons/edit-salon-profile', payload),
   updateSalonProfile: payload => post('/api/salons/update-salon', payload),
   SalonOpenClose: payload => post('/api/salons/open-close', payload),
-  salonQueueHistory: (payload = {}) => get('/api/booking/get-completed-bookings', { params: payload }),
+  salonQueueHistory: () => get('/api/booking/get-completed-bookings'),
   bookingDone: payload => post('/api/booking/booking-complete', payload),
   getBarbersList: payload => get('/api/barbers/get-salon-barbers', { params: payload }),
   walkInBooking: payload => post('/api/booking/create-walk-in', payload),
@@ -162,7 +172,7 @@ export const api = {
   uploadImage: file => {
     const formData = new FormData();
     formData.append('image', file);
-    return request('/api/upload/upload-image', { method: 'POST', body: formData, auth: true });
+    return request('/api/upload/upload-image', { method: 'POST', body: formData, auth: false });
   },
 };
 

@@ -66,7 +66,9 @@ The implementation is in `src/lib/push.js`:
 
 The API payload differs slightly between login and onboarding, but `deviceToken` follows the mobile app’s existing contract. Because MyNaai treats push as a required feature, the portal obtains a non-empty token before it sends the OTP request and again before verification/onboarding. If the browser cannot obtain a token, the portal blocks the authentication action with a setup message instead of sending an empty string. The backend can therefore keep its required, non-empty `deviceToken` validation for these auth flows. It should associate the token with the authenticated user or salon and use it when sending FCM messages.
 
-For a previously authenticated session, app startup installs the foreground listener only when push is configured, supported and permission is already granted. It does not unexpectedly prompt on every browser restart. The next successful login/onboarding refreshes the token and sends it to the API again.
+On the initial onboarding/login load, the portal visibly offers **Enable alerts**. The authenticated shell shows the same retryable status card whenever a token is unavailable. It distinguishes Firebase configuration, unsupported browsers, granted/default permission, and a permanently denied site permission. If permission is denied, the card explains that the user must change this origin’s browser/site setting before trying again; the state is never silently discarded.
+
+For a previously authenticated session, app startup installs the foreground listener only when push is configured, supported and permission is already granted. The authenticated retry action re-runs Firebase token generation and stores the result as `FCM_TOKEN`; the next OTP login/onboarding submits it again as the required `deviceToken` because the mobile API does not expose a separate device-registration method.
 
 ## 4. How notifications are delivered
 
@@ -198,7 +200,7 @@ Do not replace `public/sw.js` with the Firebase worker and do not register both 
 - Restart Vite after changing `.env.local`.
 - Confirm the site is HTTPS (or running on `localhost`).
 - Check that the browser has not permanently blocked notifications for the origin.
-- The app intentionally does not prompt on a normal page refresh; permission is requested during OTP verification/onboarding.
+- The app offers an explicit notification action on its initial onboarding/login view and again in the authenticated workspace; OTP actions also request permission when needed.
 
 ### Token is empty
 

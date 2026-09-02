@@ -124,7 +124,8 @@ function GenderToggle({ value, onChange }) {
 }
 
 function SalonCard({ salon, saved, onSelect, onBookmark, userLocation }) {
-  const distance = userLocation ? getDistanceInKm(userLocation.latitude, userLocation.longitude, salon.latitude, salon.longitude) : salon.distance;
+  const calculatedDistance = userLocation ? getDistanceInKm(userLocation.latitude, userLocation.longitude, salon.latitude, salon.longitude) : null;
+  const distance = calculatedDistance ?? salon.distance;
   const openMap = event => {
     event.stopPropagation();
     if (salon.latitude && salon.longitude) window.open(`https://www.google.com/maps/search/?api=1&query=${salon.latitude},${salon.longitude}`, '_blank', 'noopener,noreferrer');
@@ -164,24 +165,72 @@ export function HomeScreen({ session, navigate, notify }) {
     const id = ++requestId.current;
     setLoading(true);
     setLoadError('');
+
+    // The mobile dashboard waits for the best available browser location before
+    // building the salon-list body. That lets the API do its proximity work as
+    // well as giving the UI a reliable distance to sort and display.
+    const currentLocation = await getBrowserLocation();
+    if (id !== requestId.current) return;
+    setLocation(currentLocation);
+
+    const salonPayload = {
+      page: 1,
+      searchString: search,
+      genderType: gender,
+      ...(currentLocation || {}),
+    };
+
     try {
-      const [currentLocation, salonResponse, adResponse] = await Promise.all([
-        getBrowserLocation(),
-        api.userSalonList({ page: 1, searchString: search, genderType: gender }),
+      const [salonResult, adResult] = await Promise.allSettled([
+        api.userSalonList(salonPayload),
         api.userAds(),
       ]);
       if (id !== requestId.current) return;
-      setLocation(currentLocation);
-      const raw = getList(salonResponse, ['salons', 'plans']);
-      setSalons(raw.map(item => {
+
+      if (salonResult.status === 'rejected') {
+        throw salonResult.reason;
+      }
+
+      const raw = getList(salonResult.value, ['salons', 'plans']);
+      const decorated = raw.map(item => {
         const normalized = normalizeSalon(item);
-        const distance = currentLocation ? getDistanceInKm(currentLocation.latitude, currentLocation.longitude, item.latitude, item.longitude) : null;
-        return { ...normalized, distance };
-      }));
-      const images = adResponse?.data?.images || [];
-      setAds(images.map(src => ({ src, title: 'Good hair days, on demand', kicker: 'Book your time — skip the queue' })));
-      const profile = await api.userProfile({ userId: session.userId });
-      if (profile?.status === 'SUCCESS') setUserName(profile.data?.fullName || userName);
+        const distance = currentLocation
+          ? getDistanceInKm(currentLocation.latitude, currentLocation.longitude, item.latitude, item.longitude)
+          : null;
+        return {
+          ...normalized,
+          distance: distance ?? (Number.isFinite(Number(item.distance)) ? Number(item.distance) : null),
+          isSaved: item.isSaved ?? item.saved ?? item.isSavedSalon ?? false,
+        };
+      });
+
+      // Match the mobile ordering: a saved salon remains prominent, then
+      // listings with a known distance are nearest-first. When geolocation is
+      // denied, the API response is intentionally retained as the fallback list.
+      decorated.sort((left, right) => {
+        if (left.isSaved !== right.isSaved) return left.isSaved ? -1 : 1;
+        const leftDistance = Number.isFinite(left.distance) ? left.distance : Infinity;
+        const rightDistance = Number.isFinite(right.distance) ? right.distance : Infinity;
+        return leftDistance - rightDistance;
+      });
+      setSalons(decorated);
+
+      if (adResult.status === 'fulfilled') {
+        const images = adResult.value?.data?.images || [];
+        setAds(images.map(src => ({ src, title: 'Good hair days, on demand', kicker: 'Book your time — skip the queue' })));
+      }
+
+      // Profile loading should not turn a successful salon-list response into
+      // an empty screen.
+      try {
+        const profile = await api.userProfile({ userId: session.userId });
+        if (id === requestId.current && profile?.status === 'SUCCESS') {
+          setUserName(currentName => profile.data?.fullName || currentName);
+        }
+      } catch (profileError) {
+        console.debug(getErrorMessage(profileError, 'Unable to refresh the customer greeting.'));
+        // The discovery list remains useful if the optional greeting request fails.
+      }
     } catch (error) {
       if (id !== requestId.current) return;
       setLoadError(getErrorMessage(error, 'Could not reach the salon network.'));
@@ -189,13 +238,13 @@ export function HomeScreen({ session, navigate, notify }) {
     } finally {
       if (id === requestId.current) setLoading(false);
     }
-  }, [gender, isDemo, notify, search, session.userId, userName]);
+  }, [gender, isDemo, notify, search, session.userId]);
 
   useEffect(() => {
     if (isDemo) return undefined;
     const timer = window.setTimeout(loadData, search ? 350 : 0);
     return () => window.clearTimeout(timer);
-  }, [gender, search, isDemo]);
+  }, [isDemo, loadData, search]);
 
   const visibleSalons = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -226,7 +275,8 @@ export function HomeScreen({ session, navigate, notify }) {
       <AdCarousel ads={ads} />
       <div className="section-heading"><div><span className="eyebrow">CURATED FOR YOU</span><h2>Salons near you</h2></div><span className="result-count">{loading ? 'Updating…' : `${visibleSalons.length} places`}</span></div>
       {loadError && <div className="inline-notice"><CircleAlert size={16} /> {loadError} <button onClick={loadData}>Try again</button></div>}
-      {loading ? <div className="salon-grid">{[1, 2, 3, 4].map(item => <SkeletonCard key={item} />)}</div> : visibleSalons.length ? <div className="salon-grid">{visibleSalons.map(salon => <SalonCard key={salon.id} salon={salon} saved={savedId === salon.id} onSelect={item => navigate('detail', { salonId: item.id, salon: item })} onBookmark={bookmark} userLocation={location} />)}</div> : <EmptyState icon={Scissors} title="No salons found" message="Try another search or switch the salon type." />}
+      {!loading && !location && <div className="inline-notice location-fallback-notice"><MapPin size={16} /> <span>Location is unavailable, so we are showing the available salon list without distance sorting.</span><button onClick={loadData}>Enable location</button></div>}
+      {loading ? <div className="salon-grid">{[1, 2, 3, 4].map(item => <SkeletonCard key={item} />)}</div> : visibleSalons.length ? <div className="salon-grid">{visibleSalons.map(salon => <SalonCard key={salon.id} salon={salon} saved={savedId === salon.id || salon.isSaved} onSelect={item => navigate('detail', { salonId: item.id, salon: item })} onBookmark={bookmark} userLocation={location} />)}</div> : <EmptyState icon={Scissors} title="No salons found" message="Try another search or switch the salon type." />}
       <div className="home-trust-row"><ShieldCheck size={16} /><span>Verified listings</span><i /><Clock3 size={16} /><span>Book in minutes</span><i /><Heart size={16} /><span>Made for your time</span></div>
     </div>
   );
@@ -242,7 +292,7 @@ export function BookingsScreen({ session, notify }) {
     if (isDemo) return;
     setLoading(true);
     try {
-      const response = await api.bookedSalonList({ userId: session.userId, page: 1, searchString: '' });
+      const response = await api.bookedSalonList({ userId: session.userId });
       setBookings(getList(response, ['bookings', 'salons']));
     } catch (error) { notify?.('error', getErrorMessage(error, 'Unable to load bookings.')); } finally { setLoading(false); }
   }, [isDemo, notify, session.userId]);
@@ -255,7 +305,7 @@ export function BookingsScreen({ session, notify }) {
       socket = io(getServerUrl(), { transports: ['websocket'] });
       socket.on('connect', () => socket.emit('join_user', String(session.userId)));
       socket.on('booking_status_updated', load);
-    } catch { /* socket is an enhancement; REST remains the source of truth */ }
+    } catch (error) { console.debug(getErrorMessage(error, 'Live booking updates are unavailable; using refresh.')); }
     return () => socket?.disconnect();
   }, [isDemo, load, session.userId]);
 
@@ -277,7 +327,7 @@ export function BookingsScreen({ session, notify }) {
   return <div className="screen bookings-screen"><PageHeader title="My bookings" subtitle="Keep every appointment in view." action={<button className="refresh-text-button" onClick={load}><Zap size={15} /> Live updates</button>} /><div className="booking-tabs"><button className={filter === 'all' ? 'active' : ''} onClick={() => setFilter('all')}>All <span>{bookings.length}</span></button><button className={filter === 'confirmed' ? 'active' : ''} onClick={() => setFilter('confirmed')}>Confirmed</button><button className={filter === 'pending' ? 'active' : ''} onClick={() => setFilter('pending')}>Pending</button><button className={filter === 'completed' ? 'active' : ''} onClick={() => setFilter('completed')}>Completed</button></div>{loading ? <div className="list-stack">{[1, 2, 3].map(item => <SkeletonCard key={item} className="booking-skeleton" />)}</div> : filtered.length ? <div className="booking-list">{filtered.map((item, index) => { const status = getBookingStatus(item); const canCancel = !['completed', 'cancelled'].includes(status.key); return <article className="booking-card" key={item.bookingId || item.id || index}><div className="booking-calendar"><span>{new Date(item.bookingDate || Date.now()).toLocaleDateString('en-IN', { month: 'short' })}</span><strong>{new Date(item.bookingDate || Date.now()).getDate()}</strong><small>{new Date(item.bookingDate || Date.now()).toLocaleDateString('en-IN', { weekday: 'short' })}</small></div><div className="booking-main"><div className="booking-title-row"><div><span className="booking-label">APPOINTMENT</span><h3>{item.salonName || 'MyNaai salon'}</h3><p>{item.salonCity || item.city || 'Nearby'}</p></div><StatusPill tone={status.key} dot>{status.label}</StatusPill></div><div className="booking-details"><span><UserRound size={14} /> {item.barberName || 'Any specialist'}</span><span><Scissors size={14} /> {item.serviceName || item.services || 'Salon service'}</span><span><Clock3 size={14} /> {formatTime(item.bookingTime)}</span></div>{canCancel && <button className="cancel-booking" onClick={() => cancel(item.bookingId)} disabled={cancelling === item.bookingId}>{cancelling === item.bookingId ? <Spinner size={14} /> : <><X size={14} /> Cancel booking</>}</button>}</div></article>; })}</div> : <EmptyState icon={CalendarCheck2} title="No bookings yet" message="Your next good hair day is only a few taps away." />}</div>;
 }
 
-export function ProductsScreen({ session }) {
+export function ProductsScreen({ session, notify }) {
   const isDemo = session.demo;
   const [products, setProducts] = useState(isDemo ? DEMO_PRODUCTS.map(normalizeProduct) : []);
   const [search, setSearch] = useState('');
@@ -288,7 +338,7 @@ export function ProductsScreen({ session }) {
     try {
       const response = await api.userProductList({ page: 1, searchString: search });
       setProducts(getList(response, ['products']).map(normalizeProduct));
-    } catch { setProducts([]); } finally { setLoading(false); }
+    } catch (error) { setProducts([]); notify?.('error', getErrorMessage(error, 'Unable to load products.')); } finally { setLoading(false); }
   }, [isDemo, search]);
   useEffect(() => { const timer = window.setTimeout(load, search ? 320 : 0); return () => window.clearTimeout(timer); }, [load, search]);
   const filtered = products.filter(product => `${product.name} ${product.salonName}`.toLowerCase().includes(search.toLowerCase()));
@@ -410,16 +460,25 @@ export function NotificationsScreen({ session, notify, navigate }) {
   const isDemo = session.demo;
   const [items, setItems] = useState(isDemo ? DEMO_NOTIFICATIONS : []);
   const [loading, setLoading] = useState(!isDemo);
+  const [loadError, setLoadError] = useState('');
   const load = useCallback(async () => {
     if (isDemo) return;
     setLoading(true);
+    setLoadError('');
     try {
-      const response = isSalon ? await api.salonNotificationList({ salonId: session.userId, page: 1 }) : await api.userNotificationList({ page: 1 });
+      const response = isSalon
+        ? await api.salonNotificationList({ salonId: session.userId, page: 1 })
+        : await api.userNotificationListUser({ page: 1 });
+      if (response?.status && response.status !== 'SUCCESS') throw new Error(response.message || 'Unable to load notifications.');
       setItems(getList(response, ['notifications']));
-    } catch (error) { notify?.('error', getErrorMessage(error, 'Unable to load notifications.')); } finally { setLoading(false); }
+    } catch (error) {
+      const message = getErrorMessage(error, 'Unable to load notifications.');
+      setLoadError(message);
+      notify?.('error', message);
+    } finally { setLoading(false); }
   }, [isDemo, isSalon, notify, session.userId]);
   useEffect(() => { load(); }, [load]);
-  return <div className="screen notifications-screen"><PageHeader title="Notifications" subtitle={isSalon ? 'Booking requests and salon updates.' : 'Updates about your appointments.'} onBack={() => navigate(isSalon ? 'queue' : 'home')} action={<button className="icon-btn ghost" onClick={load} aria-label="Refresh notifications"><Zap size={18} /></button>} />{loading ? <div className="notification-list">{[1, 2, 3].map(item => <SkeletonCard key={item} className="notification-skeleton" />)}</div> : items.length ? <div className="notification-list">{items.map((item, index) => <article className="notification-card" key={item.notificationId || item.id || index}><div className="notification-icon"><Bell size={17} /></div><div><div className="notification-heading"><h3>{item.title || 'MyNaai update'}</h3><span>{formatDateTime(item.createdAt)}</span></div><p>{item.body || item.message || 'You have a new update from MyNaai.'}</p></div></article>)}</div> : <EmptyState icon={Bell} title="No notifications yet" message="We will keep important booking updates here." />}</div>;
+  return <div className="screen notifications-screen"><PageHeader title="Notifications" subtitle={isSalon ? 'Booking requests and salon updates.' : 'Updates about your appointments.'} onBack={() => navigate(isSalon ? 'queue' : 'home')} action={<button className="icon-btn ghost" onClick={load} aria-label="Refresh notifications"><Zap size={18} /></button>} />{loadError && !loading && <div className="inline-notice notification-error"><CircleAlert size={16} /><span>{loadError}</span><button onClick={load}>Try again</button></div>}{loading ? <div className="notification-list">{[1, 2, 3].map(item => <SkeletonCard key={item} className="notification-skeleton" />)}</div> : items.length ? <div className="notification-list">{items.map((item, index) => <article className="notification-card" key={item.notificationId || item.id || index}><div className="notification-icon"><Bell size={17} /></div><div><div className="notification-heading"><h3>{item.title || 'MyNaai update'}</h3><span>{formatDateTime(item.createdAt)}</span></div><p>{item.body || item.message || 'You have a new update from MyNaai.'}</p></div></article>)}</div> : !loadError && <EmptyState icon={Bell} title="No notifications yet" message="We will keep important booking updates here." />}</div>;
 }
 
 export function DelayRequestScreen({ params, navigate, notify }) {

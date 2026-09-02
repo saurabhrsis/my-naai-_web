@@ -180,6 +180,12 @@ img { display: block; max-width: 100%; }
 .type-option-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; }
 .type-option-grid button { min-height: 45px; border: 1px solid var(--line); border-radius: 11px; background: var(--card); color: var(--muted); font-size: 12px; font-weight: 700; }
 .type-option-grid button.active { border-color: var(--gold); color: #111; background: var(--gold); }
+.registration-location { display: flex; align-items: center; gap: 7px; margin-top: 13px; padding: 10px 11px; border: 1px solid rgba(243,200,110,.24); border-radius: 11px; color: var(--yellow); background: rgba(243,200,110,.07); font-size: 10px; line-height: 1.35; }
+.registration-location svg { flex: none; }
+.registration-location span { min-width: 0; flex: 1; }
+.registration-location.ready { border-color: rgba(110,209,158,.24); color: var(--green); background: rgba(110,209,158,.07); }
+.registration-location button { flex: none; padding: 4px 0 4px 6px; color: var(--gold); background: transparent; font-size: 10px; font-weight: 700; }
+.registration-location button:disabled { opacity: .55; }
 
 /* App shell and navigation */
 .app-shell { min-height: 100svh; background: var(--black); }
@@ -535,6 +541,19 @@ img { display: block; max-width: 100%; }
 .delay-options strong { color: var(--white); font-size: 12px; }
 .delay-options small { color: var(--muted); font-size: 10px; }
 
+/* Browser notifications */
+.push-setup-card { max-width: 670px; display: flex; align-items: center; gap: 11px; margin: 0 0 16px; padding: 12px 13px; border: 1px solid rgba(232,185,126,.26); border-radius: 14px; color: var(--white); background: rgba(232,185,126,.08); }
+.push-setup-icon { width: 32px; height: 32px; display: flex; flex: none; align-items: center; justify-content: center; border-radius: 10px; color: #111; background: var(--gold); }
+.push-setup-copy { min-width: 0; flex: 1; }
+.push-setup-copy strong { display: block; font-size: 12px; }
+.push-setup-copy p { margin: 4px 0 0; color: var(--muted); font-size: 10px; line-height: 1.4; }
+.push-setup-card .btn { flex: none; }
+.push-setup-ready { border-color: rgba(110,209,158,.22); background: rgba(110,209,158,.07); }
+.push-setup-ready .push-setup-icon { color: #08120d; background: var(--green); }
+.push-setup-compact { margin: 18px 0 0; max-width: 520px; background: rgba(0,0,0,.28); }
+.push-setup-compact .push-setup-copy strong { font-size: 11px; }
+.push-setup-compact .push-setup-copy p { color: #c6cbca; }
+
 /* Salon editor and subscription */
 .profile-editor { display: flex; flex-direction: column; gap: 13px; max-width: 920px; }
 .editor-section { padding: 16px 13px; border: 1px solid var(--line); border-radius: 18px; background: var(--card); }
@@ -555,6 +574,20 @@ img { display: block; max-width: 100%; }
 .editor-item-title strong { min-width: 0; flex: 1; overflow: hidden; color: var(--white); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .editor-item-title > button { display: inline-flex; padding: 3px; color: var(--red); background: transparent; }
 .editor-item input { min-height: 41px; padding: 0 10px; border-radius: 9px; background: #191e1e; font-size: 11px; }
+.editor-description { width: 100%; min-height: 58px; margin-top: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 9px; color: var(--white); background: #191e1e; font-size: 11px; resize: vertical; }
+.editor-description:focus { border-color: var(--gold); outline: none; }
+.editor-heading-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.editor-empty { padding: 13px; border: 1px dashed var(--line-strong); border-radius: 12px; color: var(--muted); font-size: 11px; text-align: center; }
+.editor-location-status { display: flex; align-items: flex-start; gap: 9px; margin: 12px 0 9px; padding: 11px 12px; border: 1px solid var(--line); border-radius: 12px; background: #121616; }
+.editor-location-status > svg { flex: none; margin-top: 1px; color: var(--yellow); }
+.editor-location-status > span { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
+.editor-location-status strong { font-size: 11px; }
+.editor-location-status small { color: var(--muted); font-size: 10px; line-height: 1.4; overflow-wrap: anywhere; }
+.editor-location-status.location-ready { border-color: rgba(110,209,158,.28); }
+.editor-location-status.location-ready > svg { color: var(--green); }
+.editor-location-status.location-ready strong { color: var(--green); }
+.editor-location-status.location-missing strong { color: var(--yellow); }
+.editor-address-grid { margin-top: 12px; }
 .barber-editor-item > .toggle { margin-top: 9px; }
 .mini-avatar { width: 23px; height: 23px; display: flex; align-items: center; justify-content: center; border-radius: 7px; color: #111; background: var(--gold); font-size: 8px; font-weight: 700; }
 .editor-actions { position: sticky; bottom: 8px; z-index: 5; display: flex; gap: 8px; padding: 10px; border: 1px solid rgba(232,185,126,.18); border-radius: 15px; background: rgba(19,23,22,.94); backdrop-filter: blur(14px); }
@@ -724,6 +757,12 @@ img { display: block; max-width: 100%; }
   .workspace-content { padding-right: 7%; padding-left: 7%; }
   .salon-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .salon-card-image-wrap { height: 205px; }
+}
+
+@media (max-width: 520px) {
+  .push-setup-card { align-items: flex-start; }
+  .push-setup-card .btn { min-height: 34px; padding: 0 9px; font-size: 10px; }
+  .push-setup-copy p { font-size: 9px; }
 }
 
 @media (max-width: 380px) {

@@ -9,7 +9,7 @@ The portal is a Vite/React single-page PWA for the two roles already present in 
 - **Customer**: discover salons, view services and specialists, choose a slot, create booking requests, view bookings, respond to a salon delay request, browse products, update the profile and read notifications.
 - **Salon partner**: view the live customer queue, open a booking request, accept or reject it, ask the customer to accept a small time delay, mark a service complete, review history, manage products, edit salon details, manage open/closed status and manage a subscription.
 
-The UI uses the same REST endpoint names and payload conventions as `rightserveinfotechsystems/my_naai_app`. The production API default is `https://backend.mynaai.in`. In Vite development, `/api`, `/getfiles` and `/socket.io` use the configured proxy.
+The UI uses the same REST endpoint names and payload conventions as `rightserveinfotechsystems/my_naai_app`. The production API default is `https://backend.mynaai.in`. In Vite development, `/api`, `/getFiles` and `/socket.io` use the configured proxy. The image path deliberately keeps the mobile app’s case-sensitive spelling: `/getFiles/<path>`.
 
 ## 2. Run and build
 
@@ -49,6 +49,16 @@ A successful OTP verification/onboarding stores the token and role. A browser re
 
 The app listens for relevant `localStorage` changes, so signing out or changing the session in another tab updates the open tab as well.
 
+### Required browser notifications
+
+The first-load onboarding/login experience offers a visible **Enable alerts** action. The same status card remains available at the top of the authenticated workspace whenever the browser token is missing. It distinguishes an unconfigured Firebase project, a denied permission and a token-generation failure; a blocked permission is never silently ignored. The action can be retried after the user changes the site permission in browser settings.
+
+Real customer and salon authentication is blocked until Firebase Web Push returns a non-empty registration token. That token is sent as `deviceToken` in the OTP verification/onboarding contract and is cached as `FCM_TOKEN`. Demo workspaces are local previews and do not call the API.
+
+### Incomplete salon profile guard
+
+After salon login, `isNewSalon` or `profileCompleted: false` routes to **Complete salon profile** before the queue/dashboard is rendered. The editor requires owner/salon/contact/type/address information, valid services and specialists, browser coordinates, and valid hours. A successful update clears the incomplete flag and only then permits normal salon navigation.
+
 ## 4. Salon queue changes
 
 ### Walk-in customer is disabled
@@ -59,7 +69,39 @@ The walk-in customer flow has been intentionally commented out and removed from 
 
 Queue token numbers are not shown in the portal. The queue now focuses on the customer name, appointment date/time, services, specialist and phone action. The summary card shows the next appointment time and customer instead of a token number. The API may still return `queueNumber`; it is simply not rendered by the web UI.
 
-## 5. Salon time update and customer notification
+## 5. Salon profile update contract
+
+The web editor sends the same complete body shape used by the mobile salon editor to `POST /api/salons/update-salon`. It includes profile/contact/address fields, numeric `latitude` and `longitude`, `imageUrl`, `imagesArray`, a detailed `businessHours` array, `isActive`, `profileCompleted`, and separate service/specialist collections:
+
+```json
+{
+  "salonId": "...",
+  "ownerName": "...",
+  "salonName": "...",
+  "phoneNumber": "...",
+  "email": "...",
+  "genderType": "UNISEX",
+  "agentCode": null,
+  "addressLine1": "...",
+  "addressLine2": null,
+  "city": "...",
+  "state": "...",
+  "pincode": "...",
+  "latitude": 21.1458,
+  "longitude": 79.0882,
+  "existingServices": [{ "serviceId": "...", "serviceName": "Haircut", "durationMinutes": 30, "price": "299", "description": "..." }],
+  "newServices": [],
+  "existingBarbers": [{ "barberId": "...", "fullName": "...", "profileImageUrl": null, "ratingAverage": "4.8", "isAvailable": true }],
+  "newBarbers": [],
+  "businessHours": [{ "scheduleId": "...", "openingTime": "09:00:00", "closingTime": "21:00:00", "breakStartTime": null, "breakEndTime": null, "holidayDays": [] }],
+  "isActive": true,
+  "profileCompleted": true
+}
+```
+
+New services and specialists intentionally omit their IDs; existing records retain `serviceId`/`barberId`. The editor preserves the schedule ID and break times, and refuses to submit missing/invalid coordinates or malformed contact, service, barber and time values.
+
+## 6. Salon time update and customer notification
 
 When a salon cannot start a booking at the selected time, the salon can open the booking request and choose **Update time**. The web flow offers:
 
@@ -88,7 +130,7 @@ The customer can receive the delay notification in the background or while the p
 3. The response calls `POST /api/bookingRequest/customer-delay-response/{bookingRequestId}/` with `{ "action": "ACCEPT" }` or `{ "action": "REJECT" }`.
 4. The customer is returned to `#/bookings`.
 
-## 6. Notification destinations
+## 7. Notification destinations
 
 The notification route mapping is shared by foreground JavaScript and the Firebase messaging service worker:
 
@@ -103,7 +145,7 @@ The notification route mapping is shared by foreground JavaScript and the Fireba
 
 Hash query parameters are parsed by `App.jsx`, so a notification click remains actionable after a cold start or browser restart. See [FIREBASE-WEB-PUSH.md](./FIREBASE-WEB-PUSH.md) for Firebase setup and payload details.
 
-## 7. PWA service workers
+## 8. PWA service workers
 
 Two workers have separate responsibilities and scopes:
 
@@ -112,7 +154,7 @@ Two workers have separate responsibilities and scopes:
 
 They must not be merged into one worker or registered with the same scope. The PWA install prompt is captured by the app and offered from the desktop partner sidebar when the browser supports it.
 
-## 8. Important source locations
+## 9. Important source locations
 
 | File | Responsibility |
 | --- | --- |
@@ -125,7 +167,7 @@ They must not be merged into one worker or registered with the same scope. The P
 | `src/main.jsx` | Root offline shell worker registration |
 | `src/styles.css` | Responsive mobile-first layout through large desktop widths |
 
-## 9. Validation checklist
+## 10. Validation checklist
 
 Before deployment:
 
