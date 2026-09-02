@@ -82,7 +82,7 @@ function saveSession(session) {
   return { ...session, role, userId: session.userId || user?.userId || user?.salon?.salonId || user?.salonId || user?.id || '' };
 }
 
-const PUSH_REQUIRED_MESSAGE = 'Browser notifications are required to sign in. Add the Firebase Web config and VITE_FIREBASE_VAPID_KEY, allow notifications, then reload the page.';
+const PUSH_REQUIRED_MESSAGE = 'Browser notifications are required to continue. Allow notifications for this site, then try again.';
 
 async function requirePushToken() {
   const token = await getPushToken({ requestPermission: true });
@@ -133,7 +133,7 @@ function getRouteFromHash(role) {
   return { name: value, params: Object.fromEntries(new URLSearchParams(query).entries()) };
 }
 
-function NotificationSetupCard({ compact = false, authenticated = false }) {
+function NotificationSetupCard({ compact = false }) {
   const [status, setStatus] = useState('checking');
   const [busy, setBusy] = useState(false);
 
@@ -170,18 +170,16 @@ function NotificationSetupCard({ compact = false, authenticated = false }) {
     try { await inspect(true); } finally { setBusy(false); }
   };
 
-  if (status === 'checking') return null;
+  if (['checking', 'enabled', 'unconfigured'].includes(status)) return null;
   const copy = {
-    enabled: { title: 'Notifications enabled', body: authenticated ? 'Booking buzzers and action alerts are ready on this browser.' : 'Allow alerts so MyNaai can keep you updated.' },
-    unconfigured: { title: 'Enable browser notifications', body: 'Firebase Web Push is not configured yet. Add the public Firebase and VAPID values before signing in.' },
-    unsupported: { title: 'Use a push-capable browser', body: 'This browser cannot receive MyNaai push alerts. Authentication stays protected until a browser token is available.' },
-    denied: { title: 'Notifications are blocked', body: 'Open this site’s browser permissions, set Notifications to Allow, then try again. We will not silently discard this state.' },
+    unsupported: { title: 'Use a supported browser', body: 'This browser cannot receive MyNaai notifications. Switch to a supported browser to continue.' },
+    denied: { title: 'Notifications are blocked', body: 'Open this site’s browser permissions, set Notifications to Allow, then try again.' },
     'needs-permission': { title: 'Notifications are required', body: 'Allow browser notifications to receive booking buzzers, delay requests and appointment updates.' },
-    unavailable: { title: 'Notification token not ready', body: 'We could not generate a browser token. Check Firebase setup and permission, then retry.' },
+    unavailable: { title: 'Notification access needs a retry', body: 'We could not prepare browser notifications. Check the site permission and try again.' },
   }[status];
-  const canRetry = !['enabled', 'unconfigured', 'unsupported'].includes(status);
+  const canRetry = status !== 'unsupported';
   return (
-    <section className={cx('push-setup-card', compact && 'push-setup-compact', status === 'enabled' && 'push-setup-ready')} aria-live="polite">
+    <section className={cx('push-setup-card', compact && 'push-setup-compact')} aria-live="polite">
       <span className="push-setup-icon"><Bell size={compact ? 15 : 18} /></span>
       <div className="push-setup-copy"><strong>{copy.title}</strong><p>{copy.body}</p></div>
       {canRetry && <Button size="small" onClick={enable} loading={busy}>{status === 'denied' ? 'Try again' : 'Enable alerts'}</Button>}
@@ -537,7 +535,7 @@ function AppShell({ session, route, navigate, onLogout, onSessionUpdate, notifyI
     if (route.name === 'salonTerms') return <PartnerInfo type="terms" navigate={navigate} />;
     return <SalonQueueScreen {...props} />;
   };
-  return <div className={cx('app-shell', isSalon && 'salon-shell', !showBottomNav && 'utility-shell')}><Sidebar session={session} nav={nav} route={route} navigate={navigate} onLogout={onLogout} notifyInstall={notifyInstall} /><main className="workspace"><div className="mobile-shell-bar"><Brand /><button className="mobile-menu-button" aria-label="Open menu"><Menu size={20} /></button></div><div className={cx('workspace-content', utilityRoutes.includes(route.name) && 'utility-content')}><NotificationSetupCard authenticated />{render()}</div></main>{showBottomNav && <MobileNav nav={nav} route={route} navigate={navigate} />}{toast && <div className="toast-position"><div className={cx('toast', `toast-${toast.type || 'info'}`)} role="status"><span className="toast-mark">{toast.type === 'error' ? '!' : '✓'}</span><span>{toast.message}</span><button onClick={() => setToast(null)} aria-label="Dismiss"><X size={15} /></button></div></div>}</div>;
+  return <div className={cx('app-shell', isSalon && 'salon-shell', !showBottomNav && 'utility-shell')}><Sidebar session={session} nav={nav} route={route} navigate={navigate} onLogout={onLogout} notifyInstall={notifyInstall} /><main className="workspace"><div className="mobile-shell-bar"><Brand /><button className="mobile-menu-button" aria-label="Open menu"><Menu size={20} /></button></div><div className={cx('workspace-content', utilityRoutes.includes(route.name) && 'utility-content')}>{route.name === 'account' && <NotificationSetupCard />}{render()}</div></main>{showBottomNav && <MobileNav nav={nav} route={route} navigate={navigate} />}{toast && <div className="toast-position"><div className={cx('toast', `toast-${toast.type || 'info'}`)} role="status"><span className="toast-mark">{toast.type === 'error' ? '!' : '✓'}</span><span>{toast.message}</span><button onClick={() => setToast(null)} aria-label="Dismiss"><X size={15} /></button></div></div>}</div>;
 }
 
 function Sidebar({ session, nav, route, navigate, onLogout, notifyInstall }) {

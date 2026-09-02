@@ -50,7 +50,7 @@ The app listens for relevant `localStorage` changes, so signing out or changing 
 
 ### Required browser notifications
 
-The first-load onboarding/login experience offers a visible **Enable alerts** action. The same status card remains available at the top of the authenticated workspace whenever the browser token is missing. It distinguishes an unconfigured Firebase project, a denied permission and a token-generation failure; a blocked permission is never silently ignored. The action can be retried after the user changes the site permission in browser settings.
+The first-load onboarding/login experience offers a visible **Enable alerts** action only when notification permission or token setup needs attention. Authenticated pages stay focused on their work; a retry action is available from the Account screen when permission is missing or blocked. Technical Firebase configuration details are never shown to users. The action can be retried after the user changes the site permission in browser settings.
 
 Real customer and salon authentication is blocked until Firebase Web Push returns a non-empty registration token. That token is sent as `deviceToken` in the OTP verification/onboarding contract and is cached as `FCM_TOKEN`.
 

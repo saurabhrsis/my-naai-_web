@@ -222,9 +222,6 @@ export function SelectField({ label, value, onChange, options, placeholder = 'Se
   return <Field label={label}><span className="select-wrap"><select value={value} onChange={onChange} {...props}><option value="">{placeholder}</option>{options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select><ChevronDown size={16} /></span></Field>;
 }
 
-export function StatCard({ icon: Icon, label, value, note, tone = '' }) {
-  return <div className={cx('stat-card', tone && `stat-${tone}`)}><div className="stat-icon"><Icon size={18} /></div><div><span>{label}</span><strong>{value}</strong>{note && <small>{note}</small>}</div></div>;
-}
 
 export function Rating({ value = 0, reviews, light = false }) {
   return <span className={cx('rating', light && 'rating-light')}><Star size={14} fill="currentColor" /> <b>{Number(value || 0).toFixed(1)}</b>{reviews !== undefined && <small>({reviews})</small>}</span>;
