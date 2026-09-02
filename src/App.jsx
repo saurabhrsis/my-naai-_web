@@ -37,15 +37,13 @@ import {
 import {
   BookingRequestScreen,
   EditSalonProfileScreen,
-  SALON_ABOUT_CONTENT,
-  SALON_FAQ_CONTENT,
-  SALON_TERMS_CONTENT,
   SalonAccountScreen,
   SalonHistoryScreen,
   SalonProductsScreen,
   SalonQueueScreen,
   SubscriptionScreen,
 } from './components/SalonScreens';
+import { SALON_ABOUT_CONTENT, SALON_FAQ_CONTENT, SALON_TERMS_CONTENT } from './lib/salonContent';
 import { Button, Field, getBrowserLocation, getErrorMessage, cx } from './components/Shared';
 
 const USER_NAV = [
