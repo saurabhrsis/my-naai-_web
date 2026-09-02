@@ -34,9 +34,9 @@ import {
   X,
   Zap,
 } from 'lucide-react';
-import { api, getFileUrl, getServerUrl } from '../lib/api';
+import { api, getFileUrl } from '../lib/api';
 
-import { io } from 'socket.io-client';
+import { subscribeToLiveUpdates } from '../lib/socket';
 import {
   Button,
   DetailRow,
@@ -288,16 +288,9 @@ export function BookingsScreen({ session, notify }) {
   }, [notify, session.userId]);
   useEffect(() => { load(); }, [load]);
 
-  useEffect(() => {
-    if (!session.userId) return undefined;
-    let socket;
-    try {
-      socket = io(getServerUrl(), { transports: ['websocket'] });
-      socket.on('connect', () => socket.emit('join_user', String(session.userId)));
-      socket.on('booking_status_updated', load);
-    } catch (error) { console.debug(getErrorMessage(error, 'Live booking updates are unavailable; using refresh.')); }
-    return () => socket?.disconnect();
-  }, [load, session.userId]);
+  // Live booking updates ride the shared portal socket (polling → WebSocket)
+  // in the `user_<id>` room, exactly like the mobile app's ServicesScreen.
+  useEffect(() => subscribeToLiveUpdates({ scope: 'user', id: session.userId, event: 'booking_status_updated', handler: () => load() }), [load, session.userId]);
 
   const filtered = bookings.filter(item => filter === 'all' || getBookingStatus(item).key === filter);
   const cancel = async bookingId => {

@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { api, clearSession, getToken, setToken } from './lib/api';
 import { deletePushToken, getNotificationRoute, getPushToken, isPushConfigured, setupPush } from './lib/push';
+import { resetLiveUpdatesSocket } from './lib/socket';
 import { DEFAULT_SERVICES } from './lib/defaultServices';
 import { STATE_OPTIONS } from './lib/stateOptions';
 import {
@@ -232,7 +233,7 @@ export default function App() {
     const query = new URLSearchParams(nextParams).toString();
     window.history.replaceState({}, '', `#/${nextRoute}${query ? `?${query}` : ''}`);
   }, []);
-  const logout = useCallback(() => { clearSession(); setSession(null); setRoute({ name: 'home', params: {} }); window.history.replaceState({}, '', '#/'); }, []);
+  const logout = useCallback(() => { clearSession(); resetLiveUpdatesSocket(); setSession(null); setRoute({ name: 'home', params: {} }); window.history.replaceState({}, '', '#/'); }, []);
   const updateSessionUser = useCallback((user, sessionPatch = {}) => setSession(current => {
     if (!current) return current;
     const nextUser = { ...current.user, ...user };
@@ -275,7 +276,7 @@ export default function App() {
         if (next) setRoute(getRouteFromHash(next.role));
       }
     };
-    const onSessionExpired = () => { deletePushToken().catch(error => console.debug(getErrorMessage(error, 'Could not clear the browser notification token.'))); setSession(null); setRoute({ name: 'home', params: {} }); };
+    const onSessionExpired = () => { deletePushToken().catch(error => console.debug(getErrorMessage(error, 'Could not clear the browser notification token.'))); resetLiveUpdatesSocket(); setSession(null); setRoute({ name: 'home', params: {} }); };
     window.addEventListener('storage', onStorage);
     window.addEventListener('mynaai:session-expired', onSessionExpired);
     return () => {
