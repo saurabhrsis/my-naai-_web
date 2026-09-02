@@ -64,7 +64,7 @@ The implementation is in `src/lib/push.js`:
 }
 ```
 
-The API payload differs slightly between login and onboarding, but `deviceToken` follows the mobile app’s existing contract. The backend should associate the latest token with the authenticated user or salon and use it when sending FCM messages.
+The API payload differs slightly between login and onboarding, but `deviceToken` follows the mobile app’s existing contract. When the browser cannot obtain a token, the portal omits `deviceToken` instead of sending an empty string. The backend should therefore treat it as optional and associate it with the authenticated user or salon only when a non-empty token is supplied. It should use stored tokens when sending FCM messages.
 
 For a previously authenticated session, app startup installs the foreground listener only when push is configured, supported and permission is already granted. It does not unexpectedly prompt on every browser restart. The next successful login/onboarding refreshes the token and sends it to the API again.
 
@@ -105,6 +105,31 @@ POST /api/bookingRequest/owner-action/{bookingRequestId}/
 ```
 
 The backend is expected to persist the delay and send the `DELAY_TIME_PROPOSAL` message to the customer’s stored `deviceToken`.
+
+## 4.1 Backend validation requirement
+
+A browser cannot guarantee a push token: the user may deny permission, the browser may not support Web Push, or the site may be running without HTTPS. The login/onboarding API should not reject authentication only because push is unavailable.
+
+If the backend uses Joi or a similar validator, the `deviceToken` field should be optional and nullable/empty, for example:
+
+```js
+deviceToken: Joi.string().trim().allow('', null).optional()
+```
+
+Then persist/register the token only when it is a non-empty string. The web portal now omits the field entirely when it cannot obtain a token; it does not send `deviceToken: ''`.
+
+For customers or salon owners who use both mobile and web, the recommended design is a device-token table or array containing `userId`, `token`, `platform` (`android`, `ios` or `web`), `lastSeenAt` and `active`. Do not overwrite a person’s mobile token with their browser token. Send to all active tokens and remove tokens Firebase reports as unregistered.
+
+A dedicated authenticated endpoint such as `POST /api/notifications/register-device` is also recommended for token refresh after login:
+
+```json
+{
+  "deviceToken": "<current-browser-token>",
+  "platform": "web"
+}
+```
+
+The current portal sends the token during OTP verification/onboarding, so this endpoint is not required for the initial integration, but it is useful when a browser token rotates or the user grants notification permission later.
 
 ### Foreground delivery
 
