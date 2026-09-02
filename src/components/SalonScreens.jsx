@@ -28,7 +28,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { api, getFileUrl, setToken } from '../lib/api';
-import { DEFAULT_SERVICES, DEMO_HISTORY, DEMO_NOTIFICATIONS, DEMO_PRODUCTS, DEMO_QUEUE, DEMO_SALON_PROFILE } from '../lib/demoData';
+import { DEFAULT_SERVICES } from '../lib/defaultServices';
 import { SALON_ABOUT_CONTENT, SALON_FAQ_CONTENT, SALON_TERMS_CONTENT } from '../lib/salonContent';
 import { io } from 'socket.io-client';
 import {
@@ -70,91 +70,50 @@ function isSameDate(value, offset = 0) {
   return String(value).slice(0, 10) === targetString;
 }
 
-/*
- * Walk-in customer flow is intentionally disabled for the web portal.
- * The original implementation is retained here for a future re-enable, but
- * there is no Walk-in action or modal in the salon queue UI.
- *
-function WalkInModal({ open, onClose, session, notify, onAdded }) {
-  const [customerName, setCustomerName] = useState('');
-  const [duration, setDuration] = useState('30');
-  const [barberId, setBarberId] = useState('');
-  const [barbers, setBarbers] = useState(session.demo ? DEMO_SALON_PROFILE.barbers : []);
-  const [saving, setSaving] = useState(false);
-  useEffect(() => {
-    if (!open || session.demo) return;
-    api.getBarbersList({ salonId: session.userId }).then(response => setBarbers(getList(response))).catch(error => { console.debug(getErrorMessage(error, 'Unable to load specialists.')); });
-  }, [open, session.demo, session.userId]);
-  useEffect(() => { if (!open) { setCustomerName(''); setDuration('30'); setBarberId(''); } }, [open]);
-  const add = async event => {
-    event.preventDefault();
-    if (!customerName.trim() || !duration) return notify?.('error', 'Enter a customer name and service duration.');
-    setSaving(true);
-    try {
-      if (!session.demo) {
-        const payload = { customerName: customerName.trim(), serviceDuration: Number(duration) };
-        if (barberId) payload.barberId = String(barberId);
-        const response = await api.walkInBooking(payload);
-        if (response?.status && response.status !== 'SUCCESS') throw new Error(response.message || 'Could not add walk-in.');
-      }
-      onAdded?.({ bookingId: `walk-in-${Date.now()}`, userName: customerName.trim(), serviceNames: `Walk-in · ${duration} min`, bookingDate: new Date().toISOString().slice(0, 10), bookingTime: formatTime(new Date().toTimeString().slice(0, 5)), queueNumber: 'WALK-IN', barberName: barbers.find(item => String(item.barberId || item.id) === String(barberId))?.fullName || '' });
-      notify?.('success', 'Walk-in added to the queue.');
-      onClose();
-    } catch (error) { notify?.('error', getErrorMessage(error, 'Could not add walk-in customer.')); } finally { setSaving(false); }
-  };
-  return <Modal open={open} onClose={onClose} title="Add walk-in customer"><form className="modal-form" onSubmit={add}><p className="modal-lede">Add an offline customer to today’s live queue.</p><Field label="Customer name"><input value={customerName} onChange={event => setCustomerName(event.target.value)} placeholder="e.g. Neha Sharma" autoFocus /></Field><div className="form-two-col"><Field label="Duration"><input type="number" min="5" max="180" value={duration} onChange={event => setDuration(event.target.value)} placeholder="30" /></Field><SelectField label="Specialist" value={barberId} onChange={event => setBarberId(event.target.value)} placeholder="Any specialist" options={barbers.map(item => ({ value: String(item.barberId || item.id), label: item.fullName || item.name }))} /></div><div className="form-actions"><Button type="button" variant="secondary" onClick={onClose}>Cancel</Button><Button type="submit" loading={saving}>Add to queue <UserPlus size={16} /></Button></div></form></Modal>;
-}
 
-*/
 
 export function SalonQueueScreen({ session, navigate, notify }) {
-  const isDemo = session.demo;
-  const [items, setItems] = useState(isDemo ? DEMO_QUEUE : []);
-  const [loading, setLoading] = useState(!isDemo);
-  const [refreshing, setRefreshing] = useState(false);
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [doneId, setDoneId] = useState('');
   const load = useCallback(async (isRefresh = false) => {
-    if (isDemo) return;
-    if (isRefresh) setRefreshing(true); else setLoading(true);
-    try { const response = await api.customerList({ salonId: session.userId, page: 1 }); setItems(getList(response, ['bookings', 'customers'])); } catch (error) { notify?.('error', getErrorMessage(error, 'Unable to load your queue.')); } finally { setLoading(false); setRefreshing(false); }
-  }, [isDemo, notify, session.userId]);
+    if (!isRefresh) setLoading(true);
+    try { const response = await api.customerList({ salonId: session.userId, page: 1 }); setItems(getList(response, ['bookings', 'customers'])); } catch (error) { notify?.('error', getErrorMessage(error, 'Unable to load your queue.')); } finally { setLoading(false); }
+  }, [notify, session.userId]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
-    if (isDemo) return undefined;
     let socket;
-    try { socket = io((import.meta.env.VITE_API_BASE_URL || 'https://backend.mynaai.in').replace(/\/$/, ''), { transports: ['websocket'] }); socket.on('connect', () => socket.emit('join_salon', String(session.userId))); socket.on('queue_updated', () => load()); } catch (error) { console.debug(getErrorMessage(error, 'Live queue updates are unavailable; using refresh.')); /* REST fallback */ }
+    try { socket = io((import.meta.env.VITE_API_BASE_URL || 'https://backend.mynaai.in').replace(/\/$/, ''), { transports: ['websocket'] }); socket.on('connect', () => socket.emit('join_salon', String(session.userId))); socket.on('queue_updated', () => load()); } catch (error) { console.debug(getErrorMessage(error, 'Live queue updates are unavailable; using refresh.')); }
     return () => socket?.disconnect();
-  }, [isDemo, load, session.userId]);
+  }, [load, session.userId]);
   const markDone = async bookingId => {
     if (!window.confirm('Mark this service as completed?')) return;
     setDoneId(bookingId);
-    try { if (!isDemo) { const response = await api.bookingDone({ salonId: session.userId, bookingId }); if (response?.status && response.status !== 'SUCCESS') throw new Error(response.message || 'Could not complete service'); } setItems(current => current.filter(item => item.bookingId !== bookingId)); notify?.('success', 'Service marked as completed.'); } catch (error) { notify?.('error', getErrorMessage(error, 'Could not complete service.')); } finally { setDoneId(''); }
+    try { const response = await api.bookingDone({ salonId: session.userId, bookingId }); if (response?.status && response.status !== 'SUCCESS') throw new Error(response.message || 'Could not complete service'); setItems(current => current.filter(item => item.bookingId !== bookingId)); notify?.('success', 'Service marked as completed.'); } catch (error) { notify?.('error', getErrorMessage(error, 'Could not complete service.')); } finally { setDoneId(''); }
   };
   const grouped = [{ label: 'Today', key: 0, items: items.filter(item => isSameDate(item.bookingDate, 0)) }, { label: 'Tomorrow', key: 1, items: items.filter(item => isSameDate(item.bookingDate, 1)) }, { label: 'Day after tomorrow', key: 2, items: items.filter(item => !isSameDate(item.bookingDate, 0) && !isSameDate(item.bookingDate, 1)) }].filter(group => group.items.length);
-  return <div className="screen salon-queue-screen"><PageHeader title="Customer queue" subtitle="Keep every chair moving smoothly." action={<div className="page-actions">{/* Walk-in customer entry is intentionally disabled. */}<button className="notification-button" onClick={() => navigate('notifications')} aria-label="Open notifications"><Bell size={18} /></button><button className="refresh-icon-button" onClick={() => load(true)} aria-label="Refresh queue"><Zap size={17} /></button></div>} /><div className="queue-stats"><StatCard icon={UsersRound} label="In queue" value={items.length} note="active appointments" tone="gold" /><StatCard icon={Clock3} label="Next appointment" value={items[0]?.bookingTime ? formatTime(items[0].bookingTime) : '—'} note={items[0]?.userName || 'no wait'} tone="green" /><StatCard icon={CalendarCheck2} label="Today" value={items.filter(item => isSameDate(item.bookingDate, 0)).length} note="appointments" /></div>{loading ? <div className="list-stack">{[1, 2, 3, 4].map(item => <SkeletonCard key={item} className="queue-skeleton" />)}</div> : grouped.length ? <div className="queue-groups">{grouped.map(group => <section className="queue-group" key={group.label}><div className="queue-group-heading"><h2>{group.label}</h2><span>{group.items.length} {group.items.length === 1 ? 'booking' : 'bookings'}</span></div>{group.items.map(item => <article className="queue-card" key={item.bookingId}>{/* Queue token number intentionally hidden. */}<div className="queue-main"><div className="queue-card-heading"><div><h3>{item.userName || 'Guest'}</h3><span>{item.bookingDate ? `${formatDate(item.bookingDate)} · ${formatTime(item.bookingTime)}` : 'Appointment time pending'}</span></div><Button size="small" onClick={() => markDone(item.bookingId)} loading={doneId === item.bookingId}>Done</Button></div><div className="queue-meta"><span><Scissors size={14} /> {item.serviceNames || item.services || 'Salon service'}</span>{item.barberName && <span><UserRound size={14} /> {item.barberName}</span>}{item.userPhone && item.userPhone !== '0000000000' && <a href={`tel:${item.userPhone}`}><Phone size={14} /> {item.userPhone}</a>}</div></div></article>)}</section>)}</div> : <EmptyState icon={UsersRound} title="No customers in queue" message="New booking requests will appear here." />}{/* Walk-in customer modal intentionally disabled. */}</div>;
+  return <div className="screen salon-queue-screen"><PageHeader title="Customer queue" subtitle="Keep every chair moving smoothly." action={<div className="page-actions"><button className="notification-button" onClick={() => navigate('notifications')} aria-label="Open notifications"><Bell size={18} /></button><button className="refresh-icon-button" onClick={load} aria-label="Refresh queue"><Zap size={17} /></button></div>} /><div className="queue-stats"><StatCard icon={UsersRound} label="In queue" value={items.length} note="active appointments" tone="gold" /><StatCard icon={Clock3} label="Next appointment" value={items[0]?.bookingTime ? formatTime(items[0].bookingTime) : '—'} note={items[0]?.userName || 'no wait'} tone="green" /><StatCard icon={CalendarCheck2} label="Today" value={items.filter(item => isSameDate(item.bookingDate, 0)).length} note="appointments" /></div>{loading ? <div className="list-stack">{[1, 2, 3, 4].map(item => <SkeletonCard key={item} className="queue-skeleton" />)}</div> : grouped.length ? <div className="queue-groups">{grouped.map(group => <section className="queue-group" key={group.label}><div className="queue-group-heading"><h2>{group.label}</h2><span>{group.items.length} {group.items.length === 1 ? 'booking' : 'bookings'}</span></div>{group.items.map(item => <article className="queue-card" key={item.bookingId}><div className="queue-main"><div className="queue-card-heading"><div><h3>{item.userName || 'Guest'}</h3><span>{item.bookingDate ? `${formatDate(item.bookingDate)} · ${formatTime(item.bookingTime)}` : 'Appointment time pending'}</span></div><Button size="small" onClick={() => markDone(item.bookingId)} loading={doneId === item.bookingId}>Done</Button></div><div className="queue-meta"><span><Scissors size={14} /> {item.serviceNames || item.services || 'Salon service'}</span>{item.barberName && <span><UserRound size={14} /> {item.barberName}</span>}{item.userPhone && item.userPhone !== '0000000000' && <a href={`tel:${item.userPhone}`}><Phone size={14} /> {item.userPhone}</a>}</div></div></article>)}</section>)}</div> : <EmptyState icon={UsersRound} title="No customers in queue" message="New booking requests will appear here." />}</div>;
 }
 
-export function SalonHistoryScreen({ session, notify }) {
-  const isDemo = session.demo;
-  const [items, setItems] = useState(isDemo ? DEMO_HISTORY : []);
-  const [loading, setLoading] = useState(!isDemo);
-  const load = useCallback(async () => { if (isDemo) return; setLoading(true); try { const response = await api.salonQueueHistory(); setItems(response?.bookings || getList(response, ['bookings'])); } catch (error) { notify?.('error', getErrorMessage(error, 'Unable to load booking history.')); } finally { setLoading(false); } }, [isDemo, notify]);
+export function SalonHistoryScreen({ notify }) {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const load = useCallback(async () => { setLoading(true); try { const response = await api.salonQueueHistory(); setItems(response?.bookings || getList(response, ['bookings'])); } catch (error) { notify?.('error', getErrorMessage(error, 'Unable to load booking history.')); } finally { setLoading(false); } }, [notify]);
   useEffect(() => { load(); }, [load]);
   return <div className="screen history-screen"><PageHeader title="Customer history" subtitle="A record of the work you have completed." action={<button className="refresh-text-button" onClick={load}><History size={15} /> Refresh</button>} />{loading ? <div className="list-stack">{[1, 2, 3, 4].map(item => <SkeletonCard key={item} className="history-skeleton" />)}</div> : items.length ? <div className="history-list">{items.map((item, index) => <article className="history-card" key={item.bookingId || index}><div className="history-avatar">{getInitials(item.userName || 'Guest')}</div><div className="history-copy"><div className="history-heading"><h3>{item.userName || 'Guest'}</h3><span>{formatDate(item.bookingDate)}</span></div><p>{item.services || item.serviceNames || 'Salon service'}</p><div><span><UserRound size={13} /> {item.barberName || 'Any specialist'}</span><span><Clock3 size={13} /> {formatTime(item.bookingTime)}</span></div></div><CheckCircle2 className="history-check" size={19} /></article>)}</div> : <EmptyState icon={History} title="No completed bookings" message="Your completed services will be listed here." />}</div>;
 }
 
 function normalizeProduct(item = {}) { return { ...item, id: item.productId || item.id, name: item.productName || item.name || 'Unnamed product', price: item.price || 0, rating: Number(item.rating || 0), available: item.isAvailable ?? item.available ?? true, image: item.productImage || item.image || '' }; }
 
-export function SalonProductsScreen({ session, notify }) {
-  const isDemo = session.demo;
-  const [products, setProducts] = useState(isDemo ? DEMO_PRODUCTS.map(normalizeProduct) : []);
-  const [loading, setLoading] = useState(!isDemo);
+export function SalonProductsScreen({ notify }) {
+  const [products, setProducts] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [saving, setSaving] = useState(false);
   const emptyForm = { productName: '', price: '', rating: '0', isAvailable: true, productImage: '', imageFile: null, preview: '' };
   const [form, setForm] = useState(emptyForm);
-  const load = useCallback(async () => { if (isDemo) return; setLoading(true); try { const response = await api.salonProductList({}); setProducts(getList(response, ['products']).map(normalizeProduct)); } catch (error) { notify?.('error', getErrorMessage(error, 'Unable to load product catalog.')); } finally { setLoading(false); } }, [isDemo, notify]);
+  const load = useCallback(async () => { setLoading(true); try { const response = await api.salonProductList({}); setProducts(getList(response, ['products']).map(normalizeProduct)); } catch (error) { notify?.('error', getErrorMessage(error, 'Unable to load product catalog.')); } finally { setLoading(false); } }, [notify]);
   useEffect(() => { load(); }, [load]);
   const openAdd = () => { setEditing(null); setForm(emptyForm); setModalOpen(true); };
   const openEdit = item => { setEditing(item.id); setForm({ productName: item.name, price: String(item.price), rating: String(item.rating || 0), isAvailable: item.available, productImage: item.image, imageFile: null, preview: item.image ? getFileUrl(item.image) : '' }); setModalOpen(true); };
@@ -166,17 +125,20 @@ export function SalonProductsScreen({ session, notify }) {
       let productImage = form.productImage;
       if (form.imageFile) { const uploaded = await api.uploadImage(form.imageFile); productImage = uploaded?.url || uploaded?.data?.url || uploaded?.path || ''; }
       const payload = { productId: editing || null, productName: form.productName.trim(), price: form.price, rating: Math.min(5, Math.max(0, Number(form.rating) || 0)), isAvailable: form.isAvailable, productImage, phoneNumber: '' };
-      if (!isDemo) { const response = editing ? await api.updateProductList(payload) : await api.createProductList(payload); if (response?.status && response.status !== 'SUCCESS') throw new Error(response.message || 'Could not save product'); const returned = normalizeProduct(response.data || payload); setProducts(current => editing ? current.map(item => item.id === editing ? { ...returned, id: editing } : item) : [{ ...returned, id: returned.id || `product-${Date.now()}` }, ...current]); } else { const item = { id: editing || `product-${Date.now()}`, name: payload.productName, price: payload.price, rating: payload.rating, available: payload.isAvailable, image: productImage }; setProducts(current => editing ? current.map(value => value.id === editing ? item : value) : [item, ...current]); }
+      const response = editing ? await api.updateProductList(payload) : await api.createProductList(payload);
+      if (response?.status && response.status !== 'SUCCESS') throw new Error(response.message || 'Could not save product');
+      const returned = normalizeProduct(response.data || payload);
+      setProducts(current => editing ? current.map(item => item.id === editing ? { ...returned, id: editing } : item) : [{ ...returned, id: returned.id || `product-${Date.now()}` }, ...current]);
       setModalOpen(false); notify?.('success', editing ? 'Product updated.' : 'Product added.');
     } catch (error) { notify?.('error', getErrorMessage(error, 'Could not save product.')); } finally { setSaving(false); }
   };
   const remove = async item => {
     if (!window.confirm(`Delete ${item.name}?`)) return;
-    try { if (!isDemo) { const response = await api.deleteProduct(item.id); if (response?.status && response.status !== 'SUCCESS') throw new Error(response.message || 'Could not delete product'); } setProducts(current => current.filter(value => value.id !== item.id)); notify?.('success', 'Product deleted.'); } catch (error) { notify?.('error', getErrorMessage(error, 'Could not delete product.')); }
+    try { const response = await api.deleteProduct(item.id); if (response?.status && response.status !== 'SUCCESS') throw new Error(response.message || 'Could not delete product'); setProducts(current => current.filter(value => value.id !== item.id)); notify?.('success', 'Product deleted.'); } catch (error) { notify?.('error', getErrorMessage(error, 'Could not delete product.')); }
   };
   const toggle = async item => {
     const next = { ...item, available: !item.available }; setProducts(current => current.map(value => value.id === item.id ? next : value));
-    if (!isDemo) { try { await api.updateProductList({ productId: item.id, productName: item.name, price: item.price, rating: item.rating, isAvailable: next.available, productImage: item.image || '' }); } catch (error) { setProducts(current => current.map(value => value.id === item.id ? item : value)); notify?.('error', getErrorMessage(error, 'Availability could not be updated.')); } }
+    try { await api.updateProductList({ productId: item.id, productName: item.name, price: item.price, rating: item.rating, isAvailable: next.available, productImage: item.image || '' }); } catch (error) { setProducts(current => current.map(value => value.id === item.id ? item : value)); notify?.('error', getErrorMessage(error, 'Availability could not be updated.')); }
   };
   return <div className="screen salon-products-screen"><PageHeader title="Product catalog" subtitle="Manage the products customers can discover." action={<Button size="small" onClick={openAdd}><Plus size={16} /> Add product</Button>} />{loading ? <div className="product-grid">{[1, 2, 3, 4].map(item => <SkeletonCard key={item} />)}</div> : products.length ? <div className="product-grid salon-product-grid">{products.map(item => <article className="product-card salon-product-card" key={item.id}><div className="product-image-wrap"><ImageWithFallback src={item.image} fallback="/assets/naai/ad2.jpg" alt={item.name} className="product-image" /><span className={cx('stock-label', item.available ? 'in-stock' : 'out-stock')}>{item.available ? 'In stock' : 'Out of stock'}</span></div><div className="product-copy"><h3>{item.name}</h3><div className="product-price-row"><strong>{formatCurrency(item.price)}</strong><Rating value={item.rating} /></div><div className="product-manage-row"><Toggle checked={item.available} onChange={() => toggle(item)} label={item.available ? 'Available' : 'Hidden'} /><div><button className="small-icon-button" onClick={() => openEdit(item)} aria-label={`Edit ${item.name}`}><Pencil size={15} /></button><button className="small-icon-button danger" onClick={() => remove(item)} aria-label={`Delete ${item.name}`}><Trash2 size={15} /></button></div></div></div></article>)}</div> : <EmptyState icon={Package} title="No products yet" message="Add your first product to the customer shelf." action={<Button onClick={openAdd}><Plus size={16} /> Add product</Button>} />}<Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? 'Edit product' : 'Add product'}><form className="modal-form" onSubmit={save}><Field label="Product image" hint="Optional · JPG or PNG"><label className="image-upload-box">{form.preview ? <img src={form.preview} alt="Product preview" /> : <><ImagePlus size={24} /><span>Choose an image</span></>}<input type="file" accept="image/*" onChange={event => { const file = event.target.files?.[0]; if (file) setForm(current => ({ ...current, imageFile: file, preview: URL.createObjectURL(file) })); }} /></label></Field><Field label="Product name"><input value={form.productName} onChange={event => setForm(current => ({ ...current, productName: event.target.value }))} placeholder="e.g. Matte Clay Pomade" autoFocus /></Field><div className="form-two-col"><Field label="Price"><input type="number" min="0" value={form.price} onChange={event => setForm(current => ({ ...current, price: event.target.value }))} placeholder="499" /></Field><Field label="Rating"><input type="number" min="0" max="5" step="0.1" value={form.rating} onChange={event => setForm(current => ({ ...current, rating: event.target.value }))} placeholder="4.8" /></Field></div><div className="switch-form-row"><span><strong>Available for customers</strong><small>Show this product on the shelf</small></span><Toggle checked={form.isAvailable} onChange={value => setForm(current => ({ ...current, isAvailable: value }))} /></div><div className="form-actions"><Button type="button" variant="secondary" onClick={() => setModalOpen(false)}>Cancel</Button><Button type="submit" loading={saving}>{editing ? 'Save changes' : 'Add product'}</Button></div></form></Modal></div>;
 }
@@ -185,13 +147,13 @@ function normalizeService(item, index) { const id = item.serviceId || item.id ||
 function normalizeBarber(item, index) { const id = item.barberId || item.id || `new-barber-${index}`; return { id, barberId: id, name: item.fullName || item.name || '', image: item.profileImageUrl || item.image || '', rating: item.ratingAverage ?? item.rating ?? '0.0', isAvailable: item.isAvailable ?? true }; }
 
 export function SalonAccountScreen({ session, navigate, notify, onSessionUpdate }) {
-  const isDemo = session.demo;
-  const [profile, setProfile] = useState(isDemo ? DEMO_SALON_PROFILE : session.user?.salon || {});
-  const [loading, setLoading] = useState(!isDemo);
-  const [isOpen, setIsOpen] = useState(Boolean(profile.isOpen));
-  const load = useCallback(async () => { if (isDemo) return; setLoading(true); try { const response = await api.salonProfile({ salonId: session.userId }); if (response?.status === 'SUCCESS') { const data = response.data || {}; setProfile(data); setIsOpen(getSalonStatus(data.businessHours, data.isOpen).isOpen); const incomplete = data.profileCompleted === false; onSessionUpdate?.(data, incomplete ? { isNewSalon: true } : undefined); if (incomplete) navigate('editProfile', { isOnboarding: 'true' }, { replace: true }); } } catch (error) { notify?.('error', getErrorMessage(error, 'Unable to load salon profile.')); } finally { setLoading(false); } }, [isDemo, navigate, notify, onSessionUpdate, session.userId]);
+  const initialProfile = { ...(session.user || {}), ...(session.user?.salon || {}) };
+  const [profile, setProfile] = useState(initialProfile);
+  const [loading, setLoading] = useState(true);
+  const [isOpen, setIsOpen] = useState(Boolean(initialProfile.isOpen));
+  const load = useCallback(async () => { setLoading(true); try { const response = await api.salonProfile({ salonId: session.userId }); if (response?.status === 'SUCCESS') { const data = response.data || {}; setProfile(data); setIsOpen(getSalonStatus(data.businessHours, data.isOpen).isOpen); const incomplete = data.profileCompleted === false; onSessionUpdate?.(data, incomplete ? { isNewSalon: true } : undefined); if (incomplete) navigate('editProfile', { isOnboarding: 'true' }, { replace: true }); } } catch (error) { notify?.('error', getErrorMessage(error, 'Unable to load salon profile.')); } finally { setLoading(false); } }, [navigate, notify, onSessionUpdate, session.userId]);
   useEffect(() => { load(); }, [load]);
-  const toggleOpen = async () => { const next = !isOpen; setIsOpen(next); if (!isDemo) { try { const response = await api.SalonOpenClose({ salonId: session.userId, isOpen: next }); if (response?.status && response.status !== 'SUCCESS') throw new Error(response.message || 'Could not update status'); notify?.('success', next ? 'Salon is now open.' : 'Salon is now closed.'); } catch (error) { setIsOpen(!next); notify?.('error', getErrorMessage(error, 'Could not update salon status.')); } } else notify?.('success', next ? 'Salon is now open.' : 'Salon is now closed.'); };
+  const toggleOpen = async () => { const next = !isOpen; setIsOpen(next); try { const response = await api.SalonOpenClose({ salonId: session.userId, isOpen: next }); if (response?.status && response.status !== 'SUCCESS') throw new Error(response.message || 'Could not update status'); notify?.('success', next ? 'Salon is now open.' : 'Salon is now closed.'); } catch (error) { setIsOpen(!next); notify?.('error', getErrorMessage(error, 'Could not update salon status.')); } };
   if (loading) return <div className="screen salon-account-screen"><PageHeader title="Salon account" /><div className="account-loading"><Spinner label="Loading salon profile…" /></div></div>;
   const status = getSalonStatus(profile.businessHours, isOpen);
   const menus = [{ label: 'Edit salon profile', caption: 'Photos, hours, services and specialists', icon: Edit3, route: 'editProfile' }, { label: 'About MyNaai', caption: 'How MyNaai helps your business', icon: Store, route: 'salonAbout' }, { label: 'Frequently asked questions', caption: 'Partner help and booking basics', icon: Bell, route: 'salonFaq' }, { label: 'Terms & conditions', caption: 'Partner terms', icon: Receipt, route: 'salonTerms' }, { label: 'Subscription plans', caption: 'Upgrade or renew your plan', icon: WalletCards, route: 'subscription' }, { label: 'Need a hand?', caption: 'Call 8380017393', icon: Phone, action: () => window.open('tel:8380017393') }];
@@ -222,7 +184,7 @@ function isNewEditorRecord(id) {
 
 export function EditSalonProfileScreen({ params, session, navigate, notify, onSessionUpdate }) {
   const routeProfile = params?.profileData && typeof params.profileData === 'object' ? params.profileData : null;
-  const initial = routeProfile || (session.demo ? DEMO_SALON_PROFILE : { ...(session.user || {}), ...(session.user?.salon || {}) });
+  const initial = routeProfile || { ...(session.user || {}), ...(session.user?.salon || {}) };
   const isOnboarding = params?.isOnboarding === true || params?.isOnboarding === 'true' || session.isNewSalon;
   const salonId = session.userId || initial.salonId || initial.salon?.salonId || '';
   const [profile, setProfile] = useState(initial);
@@ -249,7 +211,7 @@ export function EditSalonProfileScreen({ params, session, navigate, notify, onSe
   const [barbers, setBarbers] = useState((initial.barbers || []).map(normalizeBarber));
   const [isActive, setIsActive] = useState(initial.isActive !== false);
   const [saving, setSaving] = useState(false);
-  const [loading, setLoading] = useState(!session.demo && !routeProfile);
+  const [loading, setLoading] = useState(!routeProfile);
   const [locationLoading, setLocationLoading] = useState(false);
   const [locationError, setLocationError] = useState('');
 
@@ -281,7 +243,7 @@ export function EditSalonProfileScreen({ params, session, navigate, notify, onSe
   }, []);
 
   useEffect(() => {
-    if (session.demo || routeProfile) return undefined;
+    if (routeProfile) return undefined;
     let active = true;
     setLoading(true);
     api.salonProfile({ salonId }).then(response => {
@@ -292,7 +254,7 @@ export function EditSalonProfileScreen({ params, session, navigate, notify, onSe
       if (active) notify?.('error', getErrorMessage(error, 'Unable to load profile.'));
     }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [notify, populate, routeProfile, salonId, session.demo]);
+  }, [notify, populate, routeProfile, salonId]);
 
   const detectLocation = useCallback(async () => {
     setLocationLoading(true);
@@ -314,8 +276,8 @@ export function EditSalonProfileScreen({ params, session, navigate, notify, onSe
   }, []);
 
   useEffect(() => {
-    if (!session.demo && !loading && (!hasCoordinate(latitude) || !hasCoordinate(longitude))) detectLocation();
-  }, [detectLocation, latitude, loading, longitude, session.demo]);
+    if (!loading && (!hasCoordinate(latitude) || !hasCoordinate(longitude))) detectLocation();
+  }, [detectLocation, latitude, loading, longitude]);
 
   const addImages = event => {
     const files = Array.from(event.target.files || []).slice(0, Math.max(0, 4 - images.length));
@@ -333,7 +295,7 @@ export function EditSalonProfileScreen({ params, session, navigate, notify, onSe
     setServices(defaults.map((item, index) => ({ ...normalizeService(item, index), id: `new-service-${Date.now()}-${index}` })));
   };
   const removeService = async id => {
-    if (isNewEditorRecord(id) || session.demo) return setServices(current => current.filter(item => item.id !== id));
+    if (isNewEditorRecord(id)) return setServices(current => current.filter(item => item.id !== id));
     if (!window.confirm('Delete this service?')) return;
     try {
       const response = await api.deleteSalonService(id);
@@ -343,7 +305,7 @@ export function EditSalonProfileScreen({ params, session, navigate, notify, onSe
     } catch (error) { notify?.('error', getErrorMessage(error, 'Could not delete service.')); }
   };
   const removeBarber = async id => {
-    if (isNewEditorRecord(id) || session.demo) return setBarbers(current => current.filter(item => item.id !== id));
+    if (isNewEditorRecord(id)) return setBarbers(current => current.filter(item => item.id !== id));
     if (!window.confirm('Delete this specialist?')) return;
     try {
       const response = await api.deleteSalonBarber(id);
@@ -448,10 +410,8 @@ export function EditSalonProfileScreen({ params, session, navigate, notify, onSe
         isActive,
         profileCompleted: true,
       };
-      if (!session.demo) {
-        const response = await api.updateSalonProfile(payload);
-        if (response?.status && response.status !== 'SUCCESS') throw new Error(response.message || 'Could not update profile.');
-      }
+      const response = await api.updateSalonProfile(payload);
+      if (response?.status && response.status !== 'SUCCESS') throw new Error(response.message || 'Could not update profile.');
       const next = { ...profile, ...payload, services: [...existingServices, ...newServices], barbers: [...existingBarbers, ...newBarbers] };
       setProfile(next);
       localStorage.setItem('profileCompleted', 'true');
@@ -480,7 +440,7 @@ export function EditSalonProfileScreen({ params, session, navigate, notify, onSe
 const PARTNER_PLANS = [{ id: 'trial_2_months', title: 'Introductory', price: 299, duration: '2 months · 60 days', note: 'A gentle start for new partners' }, { id: 'monthly', title: 'Monthly plan', price: 199, duration: 'Per month', note: 'Flexible month-to-month growth' }, { id: 'quarterly', title: 'Quarterly plan', price: 499, duration: '3 months · 90 days', note: 'Best value for busy salons', best: true }];
 const RENEWAL_PLANS = [{ id: 'trial_2_months', title: 'Introductory', price: 179, duration: '2 months · 60 days', note: 'Restart with a simple plan' }, { id: 'monthly', title: 'Monthly plan', price: 99, duration: 'Per month', note: 'Flexible month-to-month growth' }, { id: 'quarterly', title: 'Quarterly plan', price: 249, duration: '3 months · 90 days', note: 'Best value for busy salons', best: true }];
 
-export function SubscriptionScreen({ params = {}, session, navigate, notify, onAuthComplete }) {
+export function SubscriptionScreen({ params = {}, navigate, notify, onAuthComplete }) {
   const registrationData = params.registrationData;
   const isRegistration = Boolean(registrationData);
   const isUpgrade = Boolean(params.isUpgrade || params.mode === 'RENEW');
@@ -500,7 +460,6 @@ export function SubscriptionScreen({ params = {}, session, navigate, notify, onA
     if (isRegistration && !String(registrationData?.deviceToken || '').trim()) return notify?.('error', 'Browser notifications must be enabled before salon registration can continue.');
     setLoading(true);
     try {
-      if (session?.demo && !isRegistration) { notify?.('success', `${plan.title} selected. In live mode this opens Razorpay.`); navigate('account'); return; }
       if (isRegistration) {
         if (registrationData.tempToken) setToken(registrationData.tempToken);
         let payment = { paymentId: 'web_free_trial', orderId: '', signature: '' };
@@ -509,7 +468,7 @@ export function SubscriptionScreen({ params = {}, session, navigate, notify, onA
         if (response?.status && response.status !== 'SUCCESS') throw new Error(response.message || 'Salon registration failed');
         const createdSalonId = response.salonId || response.data?.salonId;
         const user = { salon: { salonId: createdSalonId }, salonId: createdSalonId, ownerName: registrationData.ownerName, salonName: registrationData.salonName };
-        onAuthComplete?.({ role: 'SALON', token: response.token || response.data?.token, user, userId: createdSalonId, isNewSalon: false, demo: false });
+        onAuthComplete?.({ role: 'SALON', token: response.token || response.data?.token, user, userId: createdSalonId, isNewSalon: false });
         return;
       }
       const payment = await processPayment(plan);
@@ -524,14 +483,20 @@ export function SubscriptionScreen({ params = {}, session, navigate, notify, onA
 
 function ArrowRightIcon() { return <ChevronRight size={17} />; }
 
-export function BookingRequestScreen({ params, navigate, notify, session }) {
-  const isDemo = session.demo;
-  const [details, setDetails] = useState(isDemo ? { customerName: 'Ananya Singh', bookingDate: new Date(Date.now() + 86400000).toISOString().slice(0, 10), startTime: '17:00', endTime: '17:45', services: 'Signature Haircut, Beard Sculpt' } : null);
-  const [loading, setLoading] = useState(!isDemo);
+export function BookingRequestScreen({ params, navigate, notify }) {
+  const [details, setDetails] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState('');
   const [delayOpen, setDelayOpen] = useState(params?.openDelayModal === true || params?.openDelayModal === 'true');
-  useEffect(() => { if (isDemo || !params?.bookingRequestId) return; api.getBookingRequestById(params.bookingRequestId).then(response => setDetails(response?.data)).catch(error => notify?.('error', getErrorMessage(error, 'Unable to load booking request.'))).finally(() => setLoading(false)); }, [isDemo, notify, params?.bookingRequestId]);
-  const action = async (value, delayMinutes) => { setActionLoading(value); try { if (!isDemo) { const response = value === 'DELAY' ? await api.salonDelayBooking(params.bookingRequestId, delayMinutes) : await api.bookingRequestOwnerAction(params.bookingRequestId, { action: value }); if (response?.status && response.status !== 'SUCCESS') throw new Error(response.message || 'Could not update request'); } notify?.('success', value === 'ACCEPT' ? 'Booking accepted.' : value === 'REJECT' ? 'Booking rejected.' : `Customer notified about a ${delayMinutes}-minute delay.`); setDelayOpen(false); navigate('queue'); } catch (error) { notify?.('error', getErrorMessage(error, 'Could not update booking request.')); } finally { setActionLoading(''); } };
+  useEffect(() => {
+    if (!params?.bookingRequestId) {
+      setLoading(false);
+      return undefined;
+    }
+    api.getBookingRequestById(params.bookingRequestId).then(response => setDetails(response?.data)).catch(error => notify?.('error', getErrorMessage(error, 'Unable to load booking request.'))).finally(() => setLoading(false));
+    return undefined;
+  }, [notify, params?.bookingRequestId]);
+  const action = async (value, delayMinutes) => { setActionLoading(value); try { const response = value === 'DELAY' ? await api.salonDelayBooking(params.bookingRequestId, delayMinutes) : await api.bookingRequestOwnerAction(params.bookingRequestId, { action: value }); if (response?.status && response.status !== 'SUCCESS') throw new Error(response.message || 'Could not update request'); notify?.('success', value === 'ACCEPT' ? 'Booking accepted.' : value === 'REJECT' ? 'Booking rejected.' : `Customer notified about a ${delayMinutes}-minute delay.`); setDelayOpen(false); navigate('queue'); } catch (error) { notify?.('error', getErrorMessage(error, 'Could not update booking request.')); } finally { setActionLoading(''); } };
   if (loading) return <div className="screen"><PageHeader title="Booking request" onBack={() => navigate(-1)} /><div className="account-loading"><Spinner label="Loading request…" /></div></div>;
   return <div className="screen booking-request-screen"><PageHeader title="New booking request" subtitle="A customer is waiting for your response." onBack={() => navigate('queue')} /><div className="request-card"><div className="request-card-top"><div className="request-avatar">{getInitials(details?.customerName || 'Guest')}</div><div><span className="eyebrow">CUSTOMER</span><h2>{details?.customerName || 'Guest'}</h2><span className="request-status"><i /> Needs your response</span></div></div><div className="request-detail-grid"><div><CalendarDays size={17} /><span><small>Selected date</small><strong>{formatDate(details?.bookingDate)}</strong></span></div><div><Clock3 size={17} /><span><small>Time slot</small><strong>{details?.startTime || '—'} – {details?.endTime || '—'}</strong></span></div><div><Scissors size={17} /><span><small>Services</small><strong>{details?.services || 'Salon service'}</strong></span></div></div></div><div className="request-actions"><div><Button variant="success" loading={actionLoading === 'ACCEPT'} onClick={() => action('ACCEPT')}>Accept <Check size={17} /></Button><Button variant="danger" loading={actionLoading === 'REJECT'} onClick={() => action('REJECT')}>Reject <X size={17} /></Button></div><Button variant="warning" loading={actionLoading === 'DELAY'} onClick={() => setDelayOpen(true)}>Update time <Clock3 size={17} /></Button></div><Modal open={delayOpen} onClose={() => setDelayOpen(false)} title="Update time & notify customer"><p className="modal-lede">If you are running a little late, choose 10 or 20 minutes. MyNaai will send the customer a delay request so they can accept or decline the updated time.</p><div className="delay-options">{[10, 20].map(minutes => <button key={minutes} onClick={() => action('DELAY', minutes)} disabled={Boolean(actionLoading)}><Clock3 size={17} /><span><strong>+{minutes} minutes</strong><small>Send delay request to customer</small></span><ChevronRight size={16} /></button>)}</div></Modal></div>;
 }

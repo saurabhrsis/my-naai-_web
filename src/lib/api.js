@@ -24,7 +24,7 @@ export function setToken(token) {
 }
 
 export function clearSession() {
-  ['mynaai', 'mynaaiUser', 'isLoggedIn', 'userType', 'isNewSalon', 'mynaaiDemo', 'FCM_TOKEN'].forEach(key => localStorage.removeItem(key));
+  ['mynaai', 'mynaaiUser', 'isLoggedIn', 'userType', 'isNewSalon', 'FCM_TOKEN'].forEach(key => localStorage.removeItem(key));
   if (typeof window !== 'undefined') window.dispatchEvent(new Event('mynaai:session-expired'));
 }
 

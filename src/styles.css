@@ -169,8 +169,6 @@ img { display: block; max-width: 100%; }
 .auth-divider { position: relative; display: flex; align-items: center; margin: 27px 0 18px; color: #616a69; font-size: 12px; }
 .auth-divider::before, .auth-divider::after { content: ''; flex: 1; height: 1px; background: var(--line); }
 .auth-divider span { padding: 0 12px; }
-.demo-button { width: 100%; min-height: 48px; display: flex; justify-content: center; align-items: center; gap: 8px; border-radius: 12px; border: 1px solid rgba(232,185,126,.35); background: var(--gold-wash); color: var(--gold); font-weight: 700; font-size: 12px; }
-.demo-button:hover { background: rgba(232,185,126,.18); }
 .partner-link { display: block; width: 100%; margin-top: 23px; color: var(--muted); background: transparent; font-size: 12px; text-align: center; }
 .partner-link strong { color: var(--gold); }
 .auth-legal { max-width: 350px; margin: auto auto 0; color: #59605f; font-size: 10px; line-height: 1.5; text-align: center; }
@@ -213,7 +211,6 @@ img { display: block; max-width: 100%; }
 .page-header-compact { margin-bottom: 14px; }
 .page-header-action { display: flex; align-items: center; gap: 8px; }
 .page-actions { display: flex; align-items: center; gap: 7px; }
-/* Walk-in customer entry is disabled; keep the queue focused on bookings. */
 .notification-button, .refresh-icon-button { position: relative; width: 38px; height: 38px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; background: var(--gold); color: #111; }
 .refresh-icon-button { background: var(--card); color: var(--gold); border: 1px solid var(--line); }
 .notification-ping { position: absolute; top: 8px; right: 8px; width: 6px; height: 6px; border: 1px solid #111; border-radius: 50%; background: var(--red); }

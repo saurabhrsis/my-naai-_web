@@ -35,7 +35,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { api, getFileUrl, getServerUrl } from '../lib/api';
-import { DEMO_ADS, DEMO_BOOKINGS, DEMO_NOTIFICATIONS, DEMO_PRODUCTS, DEMO_SALONS, DEMO_USER } from '../lib/demoData';
+
 import { io } from 'socket.io-client';
 import {
   Button,
@@ -97,13 +97,15 @@ function getBookingStatus(item) {
 function AdCarousel({ ads }) {
   const [active, setActive] = useState(0);
   const timerRef = useRef(null);
-  const slides = ads?.length ? ads : DEMO_ADS;
+  const slides = ads || [];
   useEffect(() => {
+    if (!slides.length) return undefined;
     if (slides.length < 2) return undefined;
     timerRef.current = window.setInterval(() => setActive(index => (index + 1) % slides.length), 4200);
     return () => window.clearInterval(timerRef.current);
   }, [slides.length]);
   useEffect(() => { if (active >= slides.length) setActive(0); }, [active, slides.length]);
+  if (!slides.length) return null;
   const item = slides[active] || slides[0];
   return (
     <div className="ad-carousel" aria-label="MyNaai highlights">
@@ -148,20 +150,18 @@ function SalonCard({ salon, saved, onSelect, onBookmark, userLocation }) {
 }
 
 export function HomeScreen({ session, navigate, notify }) {
-  const isDemo = session.demo;
   const [gender, setGender] = useState('male');
   const [search, setSearch] = useState('');
-  const [salons, setSalons] = useState(isDemo ? DEMO_SALONS.map(normalizeSalon) : []);
-  const [ads, setAds] = useState(isDemo ? DEMO_ADS : []);
+  const [salons, setSalons] = useState([]);
+  const [ads, setAds] = useState([]);
   const [savedId, setSavedId] = useState(() => localStorage.getItem('mynaaiSavedSalonId') || null);
   const [location, setLocation] = useState(null);
-  const [loading, setLoading] = useState(!isDemo);
+  const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
-  const [userName, setUserName] = useState(session.user?.fullName || DEMO_USER.fullName);
+  const [userName, setUserName] = useState(session.user?.fullName || '');
   const requestId = useRef(0);
 
   const loadData = useCallback(async () => {
-    if (isDemo) return;
     const id = ++requestId.current;
     setLoading(true);
     setLoadError('');
@@ -238,13 +238,12 @@ export function HomeScreen({ session, navigate, notify }) {
     } finally {
       if (id === requestId.current) setLoading(false);
     }
-  }, [gender, isDemo, notify, search, session.userId]);
+  }, [gender, notify, search, session.userId]);
 
   useEffect(() => {
-    if (isDemo) return undefined;
     const timer = window.setTimeout(loadData, search ? 350 : 0);
     return () => window.clearTimeout(timer);
-  }, [isDemo, loadData, search]);
+  }, [loadData, search]);
 
   const visibleSalons = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -252,13 +251,6 @@ export function HomeScreen({ session, navigate, notify }) {
   }, [salons, search]);
 
   const bookmark = async salonId => {
-    if (isDemo) {
-      const next = savedId === salonId ? null : salonId;
-      setSavedId(next);
-      if (next) localStorage.setItem('mynaaiSavedSalonId', next); else localStorage.removeItem('mynaaiSavedSalonId');
-      notify?.('success', next ? 'Salon saved to your favourites.' : 'Salon removed from saved list.');
-      return;
-    }
     try {
       const response = await api.toggleSaveSalon({ salonId });
       const message = String(response?.message || '').toLowerCase();
@@ -283,23 +275,21 @@ export function HomeScreen({ session, navigate, notify }) {
 }
 
 export function BookingsScreen({ session, notify }) {
-  const isDemo = session.demo;
-  const [bookings, setBookings] = useState(isDemo ? DEMO_BOOKINGS : []);
-  const [loading, setLoading] = useState(!isDemo);
+  const [bookings, setBookings] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [cancelling, setCancelling] = useState('');
   const [filter, setFilter] = useState('all');
   const load = useCallback(async () => {
-    if (isDemo) return;
     setLoading(true);
     try {
       const response = await api.bookedSalonList({ userId: session.userId });
       setBookings(getList(response, ['bookings', 'salons']));
     } catch (error) { notify?.('error', getErrorMessage(error, 'Unable to load bookings.')); } finally { setLoading(false); }
-  }, [isDemo, notify, session.userId]);
+  }, [notify, session.userId]);
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
-    if (isDemo || !session.userId) return undefined;
+    if (!session.userId) return undefined;
     let socket;
     try {
       socket = io(getServerUrl(), { transports: ['websocket'] });
@@ -307,7 +297,7 @@ export function BookingsScreen({ session, notify }) {
       socket.on('booking_status_updated', load);
     } catch (error) { console.debug(getErrorMessage(error, 'Live booking updates are unavailable; using refresh.')); }
     return () => socket?.disconnect();
-  }, [isDemo, load, session.userId]);
+  }, [load, session.userId]);
 
   const filtered = bookings.filter(item => filter === 'all' || getBookingStatus(item).key === filter);
   const cancel = async bookingId => {
@@ -316,10 +306,8 @@ export function BookingsScreen({ session, notify }) {
     setBookings(items => items.filter(item => item.bookingId !== bookingId));
     setCancelling(bookingId);
     try {
-      if (!isDemo) {
-        const response = await api.bookingRequestCancel(bookingId);
-        if (response?.status && response.status !== 'SUCCESS') throw new Error(response.message || 'Cancellation failed');
-      }
+      const response = await api.bookingRequestCancel(bookingId);
+      if (response?.status && response.status !== 'SUCCESS') throw new Error(response.message || 'Cancellation failed');
       notify?.('success', 'Booking cancelled.');
     } catch (error) { setBookings(previous); notify?.('error', getErrorMessage(error, 'Could not cancel this booking.')); } finally { setCancelling(''); }
   };
@@ -327,43 +315,40 @@ export function BookingsScreen({ session, notify }) {
   return <div className="screen bookings-screen"><PageHeader title="My bookings" subtitle="Keep every appointment in view." action={<button className="refresh-text-button" onClick={load}><Zap size={15} /> Live updates</button>} /><div className="booking-tabs"><button className={filter === 'all' ? 'active' : ''} onClick={() => setFilter('all')}>All <span>{bookings.length}</span></button><button className={filter === 'confirmed' ? 'active' : ''} onClick={() => setFilter('confirmed')}>Confirmed</button><button className={filter === 'pending' ? 'active' : ''} onClick={() => setFilter('pending')}>Pending</button><button className={filter === 'completed' ? 'active' : ''} onClick={() => setFilter('completed')}>Completed</button></div>{loading ? <div className="list-stack">{[1, 2, 3].map(item => <SkeletonCard key={item} className="booking-skeleton" />)}</div> : filtered.length ? <div className="booking-list">{filtered.map((item, index) => { const status = getBookingStatus(item); const canCancel = !['completed', 'cancelled'].includes(status.key); return <article className="booking-card" key={item.bookingId || item.id || index}><div className="booking-calendar"><span>{new Date(item.bookingDate || Date.now()).toLocaleDateString('en-IN', { month: 'short' })}</span><strong>{new Date(item.bookingDate || Date.now()).getDate()}</strong><small>{new Date(item.bookingDate || Date.now()).toLocaleDateString('en-IN', { weekday: 'short' })}</small></div><div className="booking-main"><div className="booking-title-row"><div><span className="booking-label">APPOINTMENT</span><h3>{item.salonName || 'MyNaai salon'}</h3><p>{item.salonCity || item.city || 'Nearby'}</p></div><StatusPill tone={status.key} dot>{status.label}</StatusPill></div><div className="booking-details"><span><UserRound size={14} /> {item.barberName || 'Any specialist'}</span><span><Scissors size={14} /> {item.serviceName || item.services || 'Salon service'}</span><span><Clock3 size={14} /> {formatTime(item.bookingTime)}</span></div>{canCancel && <button className="cancel-booking" onClick={() => cancel(item.bookingId)} disabled={cancelling === item.bookingId}>{cancelling === item.bookingId ? <Spinner size={14} /> : <><X size={14} /> Cancel booking</>}</button>}</div></article>; })}</div> : <EmptyState icon={CalendarCheck2} title="No bookings yet" message="Your next good hair day is only a few taps away." />}</div>;
 }
 
-export function ProductsScreen({ session, notify }) {
-  const isDemo = session.demo;
-  const [products, setProducts] = useState(isDemo ? DEMO_PRODUCTS.map(normalizeProduct) : []);
+export function ProductsScreen({ notify }) {
+  const [products, setProducts] = useState([]);
   const [search, setSearch] = useState('');
-  const [loading, setLoading] = useState(!isDemo);
+  const [loading, setLoading] = useState(true);
   const load = useCallback(async () => {
-    if (isDemo) return;
     setLoading(true);
     try {
       const response = await api.userProductList({ page: 1, searchString: search });
       setProducts(getList(response, ['products']).map(normalizeProduct));
     } catch (error) { setProducts([]); notify?.('error', getErrorMessage(error, 'Unable to load products.')); } finally { setLoading(false); }
-  }, [isDemo, search]);
+  }, [notify, search]);
   useEffect(() => { const timer = window.setTimeout(load, search ? 320 : 0); return () => window.clearTimeout(timer); }, [load, search]);
   const filtered = products.filter(product => `${product.name} ${product.salonName}`.toLowerCase().includes(search.toLowerCase()));
   return <div className="screen products-screen"><PageHeader title="Product shelf" subtitle="Little rituals from salons you love." action={<span className="catalog-label"><ShoppingBag size={15} /> Salon picks</span>} /><label className="search-field product-search"><Search size={17} /><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Search products" aria-label="Search products" /></label>{loading ? <div className="product-grid">{[1, 2, 3, 4].map(item => <SkeletonCard key={item} />)}</div> : filtered.length ? <div className="product-grid">{filtered.map(product => <article className="product-card" key={product.id}><div className="product-image-wrap"><ImageWithFallback src={product.image} fallback="/assets/naai/ad2.jpg" alt={product.name} className="product-image" /><span className={cx('stock-label', product.available ? 'in-stock' : 'out-stock')}>{product.available ? 'Available' : 'Out of stock'}</span></div><div className="product-copy"><span className="product-salon">{product.salonName || 'MyNaai partner'}</span><h3>{product.name}</h3><div className="product-price-row"><strong>{formatCurrency(product.price)}</strong><Rating value={product.rating} /></div></div></article>)}</div> : <EmptyState icon={ShoppingBag} title="No products found" message="Try a different product name." />}</div>;
 }
 
 export function AccountScreen({ session, navigate, onLogout, notify, onSessionUpdate }) {
-  const isDemo = session.demo;
-  const [profile, setProfile] = useState(isDemo ? DEMO_USER : session.user || {});
-  const [loading, setLoading] = useState(!isDemo);
+  const [profile, setProfile] = useState(session.user || {});
+  const [loading, setLoading] = useState(true);
   const [editOpen, setEditOpen] = useState(false);
   const [name, setName] = useState(profile.fullName || '');
   const [saving, setSaving] = useState(false);
   const load = useCallback(async () => {
-    if (isDemo) return;
     setLoading(true);
     try { const response = await api.userProfile({ userId: session.userId }); if (response?.status === 'SUCCESS') { setProfile(response.data); onSessionUpdate?.(response.data); } } catch (error) { notify?.('error', getErrorMessage(error, 'Unable to load your profile.')); } finally { setLoading(false); }
-  }, [isDemo, notify, onSessionUpdate, session.userId]);
+  }, [notify, onSessionUpdate, session.userId]);
   useEffect(() => { load(); }, [load]);
   const save = async event => {
     event.preventDefault();
     if (!name.trim()) return notify?.('error', 'Name cannot be empty.');
     setSaving(true);
     try {
-      if (!isDemo) { const response = await api.updateProfile({ userId: session.userId, fullName: name.trim() }); if (response?.status && response.status !== 'SUCCESS') throw new Error(response.message || 'Update failed'); }
+      const response = await api.updateProfile({ userId: session.userId, fullName: name.trim() });
+      if (response?.status && response.status !== 'SUCCESS') throw new Error(response.message || 'Update failed');
       const next = { ...profile, fullName: name.trim() }; setProfile(next); onSessionUpdate?.(next); setEditOpen(false); notify?.('success', 'Profile updated successfully.');
     } catch (error) { notify?.('error', getErrorMessage(error, 'Could not update profile.')); } finally { setSaving(false); }
   };
@@ -372,16 +357,14 @@ export function AccountScreen({ session, navigate, onLogout, notify, onSessionUp
   return <div className="screen account-screen"><PageHeader title="Account" subtitle="Your MyNaai profile and preferences." /><section className="profile-card"><div className="profile-avatar">{getInitials(profile.fullName || 'User')}</div><div className="profile-copy"><span className="eyebrow">CUSTOMER PROFILE</span><h2>{profile.fullName || 'MyNaai user'}</h2><p><Phone size={14} /> +91 {profile.phoneNumber || '—'}</p></div><button className="edit-profile-button" onClick={() => { setName(profile.fullName || ''); setEditOpen(true); }}><UserRound size={15} /> Edit</button></section><div className="account-card">{menus.map(item => <button className="account-menu-row" key={item.label} onClick={item.action || (() => navigate(item.route))}><span className="account-menu-icon"><item.icon size={18} /></span><span><strong>{item.label}</strong><small>{item.caption}</small></span><ChevronRight size={17} /></button>)}</div><button className="logout-button" onClick={onLogout}><span><ArrowDownToLine size={17} /> Sign out</span><span className="logout-arrow">↗</span></button><p className="version-label">MyNaai web portal · 1.0</p><Modal open={editOpen} onClose={() => setEditOpen(false)} title="Edit profile"><form className="modal-form" onSubmit={save}><Field label="Full name"><input value={name} onChange={event => setName(event.target.value)} placeholder="Your name" autoFocus /></Field><Field label="Mobile number" hint="Your mobile number is used for OTP login."><input value={profile.phoneNumber || ''} disabled /></Field><div className="form-actions"><Button type="button" variant="secondary" onClick={() => setEditOpen(false)}>Cancel</Button><Button type="submit" loading={saving}>Save changes</Button></div></form></Modal></div>;
 }
 
-export function SalonDetailScreen({ params, navigate, notify, session }) {
-  const isDemo = session.demo;
-  const [salon, setSalon] = useState(params?.salon || (isDemo ? DEMO_SALONS.find(item => item.salonId === params?.salonId) : null));
-  const [loading, setLoading] = useState(!salon);
+export function SalonDetailScreen({ params, navigate, notify }) {
+  const [salon, setSalon] = useState(params?.salon || null);
+  const [loading, setLoading] = useState(true);
   const [active, setActive] = useState(0);
   const [imageOpen, setImageOpen] = useState(false);
   const load = useCallback(async () => {
-    if (isDemo && salon) return;
     try { const response = await api.salonByIdInfo({ salonId: params?.salonId }); if (response?.status === 'SUCCESS') setSalon(response.data); else throw new Error(response?.message || 'Salon not found'); } catch (error) { notify?.('error', getErrorMessage(error, 'Unable to load salon details.')); } finally { setLoading(false); }
-  }, [isDemo, notify, params?.salonId, salon]);
+  }, [notify, params?.salonId]);
   useEffect(() => { load(); }, [load]);
   if (loading) return <div className="screen detail-screen"><PageHeader title="Salon details" onBack={() => navigate(-1)} /><div className="detail-loading"><Spinner label="Loading salon…" /></div></div>;
   if (!salon) return <div className="screen"><EmptyState title="Salon unavailable" message="This salon may have moved or closed." action={<Button onClick={() => navigate('home')}>Back to salons</Button>} /></div>;
@@ -390,7 +373,7 @@ export function SalonDetailScreen({ params, navigate, notify, session }) {
   const images = details.images?.length ? details.images : [details.image];
   const status = getSalonStatus(details.businessHours, details.isOpen);
   const hours = details.businessHours?.[0];
-  return <div className="screen detail-screen"><PageHeader title={details.name} subtitle={`${details.genderType || 'UNISEX'} salon`} onBack={() => navigate(-1)} action={<button className="icon-btn ghost" onClick={() => window.open(`tel:${details.phoneNumber || ''}`)} aria-label="Call salon"><Phone size={18} /></button>} /><div className="detail-hero"><div className="detail-gallery"><ImageWithFallback src={images[active]} fallback={USER_FALLBACK_IMAGE} alt={details.name} className="detail-main-image" onClick={() => setImageOpen(true)} /><button className="gallery-expand" onClick={() => setImageOpen(true)} aria-label="Open image"><ExternalLink size={16} /></button>{images.length > 1 && <div className="gallery-thumbs">{images.map((image, index) => <button key={`${image}-${index}`} className={index === active ? 'active' : ''} onClick={() => setActive(index)}><ImageWithFallback src={image} fallback={USER_FALLBACK_IMAGE} alt="" /></button>)}</div>}</div><div className="detail-overview"><div className="detail-title-row"><div><span className="salon-type">{details.genderType || 'UNISEX'} SALON</span><h2>{details.name}</h2></div><Rating value={details.rating} reviews={details.reviews} light /></div><div className="detail-status-line"><StatusPill tone={status.isOpen ? 'open' : 'closed'} dot>{status.text}</StatusPill>{hours && <span><Clock3 size={14} /> {formatTime(hours.openingTime)} – {formatTime(hours.closingTime)}</span>}</div><button className="detail-location" onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${details.latitude},${details.longitude}`, '_blank', 'noopener,noreferrer')}><MapPin size={17} /><span>{details.address || 'Address unavailable'}</span><ExternalLink size={14} /></button><div className="detail-stat-grid"><div><Timer size={17} /><span><small>Current wait</small><strong>{details.waitTime || '10–15 min'}</strong></span></div><div><Scissors size={17} /><span><small>Services</small><strong>{details.services?.length || 0} to choose</strong></span></div><div><ShieldCheck size={17} /><span><small>Reviews</small><strong>{details.reviews || 0} verified</strong></span></div></div><div className="arrival-note"><Zap size={16} /><span><strong>Before you arrive</strong> Come 10 minutes before your slot. Walk-ins are subject to availability.</span></div></div></div><section className="detail-section"><div className="section-heading compact"><div><span className="eyebrow">WHAT THEY OFFER</span><h2>Services & specialists</h2></div><span className="muted-line">{details.barbers?.length || 0} specialists</span></div><div className="service-preview-grid">{(details.services || []).slice(0, 4).map(service => <div className="service-preview" key={service.serviceId || service.id}><Scissors size={15} /><span>{service.serviceName || service.name}</span><strong>{formatCurrency(service.price)}</strong></div>)}</div></section><div className="sticky-continue"><div><span>Ready when you are?</span><small>Select services and a time slot</small></div><Button onClick={() => navigate('services', { salon: details, salonId: details.id })}>Continue <ArrowRight size={17} /></Button></div><Modal open={imageOpen} onClose={() => setImageOpen(false)} title={details.name} size="image"><ImageWithFallback src={images[active]} fallback={USER_FALLBACK_IMAGE} alt={details.name} className="modal-full-image" /></Modal></div>;
+  return <div className="screen detail-screen"><PageHeader title={details.name} subtitle={`${details.genderType || 'UNISEX'} salon`} onBack={() => navigate(-1)} action={<button className="icon-btn ghost" onClick={() => window.open(`tel:${details.phoneNumber || ''}`)} aria-label="Call salon"><Phone size={18} /></button>} /><div className="detail-hero"><div className="detail-gallery"><ImageWithFallback src={images[active]} fallback={USER_FALLBACK_IMAGE} alt={details.name} className="detail-main-image" onClick={() => setImageOpen(true)} /><button className="gallery-expand" onClick={() => setImageOpen(true)} aria-label="Open image"><ExternalLink size={16} /></button>{images.length > 1 && <div className="gallery-thumbs">{images.map((image, index) => <button key={`${image}-${index}`} className={index === active ? 'active' : ''} onClick={() => setActive(index)}><ImageWithFallback src={image} fallback={USER_FALLBACK_IMAGE} alt="" /></button>)}</div>}</div><div className="detail-overview"><div className="detail-title-row"><div><span className="salon-type">{details.genderType || 'UNISEX'} SALON</span><h2>{details.name}</h2></div><Rating value={details.rating} reviews={details.reviews} light /></div><div className="detail-status-line"><StatusPill tone={status.isOpen ? 'open' : 'closed'} dot>{status.text}</StatusPill>{hours && <span><Clock3 size={14} /> {formatTime(hours.openingTime)} – {formatTime(hours.closingTime)}</span>}</div><button className="detail-location" onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${details.latitude},${details.longitude}`, '_blank', 'noopener,noreferrer')}><MapPin size={17} /><span>{details.address || 'Address unavailable'}</span><ExternalLink size={14} /></button><div className="detail-stat-grid"><div><Timer size={17} /><span><small>Current wait</small><strong>{details.waitTime || '10–15 min'}</strong></span></div><div><Scissors size={17} /><span><small>Services</small><strong>{details.services?.length || 0} to choose</strong></span></div><div><ShieldCheck size={17} /><span><small>Reviews</small><strong>{details.reviews || 0} verified</strong></span></div></div><div className="arrival-note"><Zap size={16} /><span><strong>Before you arrive</strong> Come 10 minutes before your slot and follow the latest appointment status.</span></div></div></div><section className="detail-section"><div className="section-heading compact"><div><span className="eyebrow">WHAT THEY OFFER</span><h2>Services & specialists</h2></div><span className="muted-line">{details.barbers?.length || 0} specialists</span></div><div className="service-preview-grid">{(details.services || []).slice(0, 4).map(service => <div className="service-preview" key={service.serviceId || service.id}><Scissors size={15} /><span>{service.serviceName || service.name}</span><strong>{formatCurrency(service.price)}</strong></div>)}</div></section><div className="sticky-continue"><div><span>Ready when you are?</span><small>Select services and a time slot</small></div><Button onClick={() => navigate('services', { salon: details, salonId: details.id })}>Continue <ArrowRight size={17} /></Button></div><Modal open={imageOpen} onClose={() => setImageOpen(false)} title={details.name} size="image"><ImageWithFallback src={images[active]} fallback={USER_FALLBACK_IMAGE} alt={details.name} className="modal-full-image" /></Modal></div>;
 }
 
 export function ServicesScreen({ params, navigate, notify }) {
@@ -418,7 +401,7 @@ function createTimeSlots(open = '09:00', close = '21:00') {
   return slots;
 }
 
-export function ScheduleScreen({ params, navigate, notify, session }) {
+export function ScheduleScreen({ params, navigate, notify }) {
   const salon = params?.salon || {};
   const services = params?.selectedServices || [];
   const [dayOffset, setDayOffset] = useState(0);
@@ -444,10 +427,8 @@ export function ScheduleScreen({ params, navigate, notify, session }) {
     if (!services.length) return notify?.('error', 'Please select at least one service.');
     setLoading(true);
     try {
-      if (!session.demo) {
-        const response = await api.createBookingRequest({ salonId: salon.salonId || salon.id, barberId: barber?.barberId || barber?.id || '', bookingDate, bookingTime: time, services: services.map(item => item.serviceId || item.id) });
-        if (response?.status && response.status !== 'SUCCESS') throw new Error(response.message || 'Booking failed');
-      }
+      const response = await api.createBookingRequest({ salonId: salon.salonId || salon.id, barberId: barber?.barberId || barber?.id || '', bookingDate, bookingTime: time, services: services.map(item => item.serviceId || item.id) });
+      if (response?.status && response.status !== 'SUCCESS') throw new Error(response.message || 'Booking failed');
       notify?.('success', 'Request sent — wait for the salon response.');
       navigate('bookings');
     } catch (error) { notify?.('error', getErrorMessage(error, 'Could not send booking request.')); } finally { setLoading(false); }
@@ -457,12 +438,10 @@ export function ScheduleScreen({ params, navigate, notify, session }) {
 
 export function NotificationsScreen({ session, notify, navigate }) {
   const isSalon = session.role === 'SALON';
-  const isDemo = session.demo;
-  const [items, setItems] = useState(isDemo ? DEMO_NOTIFICATIONS : []);
-  const [loading, setLoading] = useState(!isDemo);
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const load = useCallback(async () => {
-    if (isDemo) return;
     setLoading(true);
     setLoadError('');
     try {
@@ -476,7 +455,7 @@ export function NotificationsScreen({ session, notify, navigate }) {
       setLoadError(message);
       notify?.('error', message);
     } finally { setLoading(false); }
-  }, [isDemo, isSalon, notify, session.userId]);
+  }, [isSalon, notify, session.userId]);
   useEffect(() => { load(); }, [load]);
   return <div className="screen notifications-screen"><PageHeader title="Notifications" subtitle={isSalon ? 'Booking requests and salon updates.' : 'Updates about your appointments.'} onBack={() => navigate(isSalon ? 'queue' : 'home')} action={<button className="icon-btn ghost" onClick={load} aria-label="Refresh notifications"><Zap size={18} /></button>} />{loadError && !loading && <div className="inline-notice notification-error"><CircleAlert size={16} /><span>{loadError}</span><button onClick={load}>Try again</button></div>}{loading ? <div className="notification-list">{[1, 2, 3].map(item => <SkeletonCard key={item} className="notification-skeleton" />)}</div> : items.length ? <div className="notification-list">{items.map((item, index) => <article className="notification-card" key={item.notificationId || item.id || index}><div className="notification-icon"><Bell size={17} /></div><div><div className="notification-heading"><h3>{item.title || 'MyNaai update'}</h3><span>{formatDateTime(item.createdAt)}</span></div><p>{item.body || item.message || 'You have a new update from MyNaai.'}</p></div></article>)}</div> : !loadError && <EmptyState icon={Bell} title="No notifications yet" message="We will keep important booking updates here." />}</div>;
 }

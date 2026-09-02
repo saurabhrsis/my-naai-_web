@@ -1,5 +1,6 @@
 import { getApps, initializeApp } from 'firebase/app';
 import { deleteToken, getMessaging, getToken, isSupported, onMessage } from 'firebase/messaging';
+import { getErrorMessage } from '../components/Shared';
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -29,7 +30,11 @@ async function getMessagingClient() {
       if (!(await isSupported())) return null;
       const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
       return getMessaging(app);
-    })().catch(() => null);
+    })().catch(error => {
+      console.debug(getErrorMessage(error, 'Firebase Messaging is unavailable.'));
+      messagingPromise = undefined;
+      return null;
+    });
   }
   return messagingPromise;
 }
@@ -38,7 +43,8 @@ async function getPushServiceWorker() {
   if (!registrationPromise) {
     registrationPromise = navigator.serviceWorker.register(`/firebase-messaging-sw.js?${queryConfig()}`, {
       scope: '/firebase-cloud-messaging-push-scope',
-    }).catch(() => {
+    }).catch(error => {
+      console.debug(getErrorMessage(error, 'Firebase push service worker registration failed.'));
       // Allow the authenticated retry action to recover from a transient
       // service-worker/Firebase setup failure instead of caching null forever.
       registrationPromise = undefined;
@@ -54,7 +60,10 @@ export async function getPushToken({ requestPermission = false } = {}) {
   if (!messaging) return '';
   let permission = Notification.permission;
   if (permission === 'default' && requestPermission) {
-    try { permission = await Notification.requestPermission(); } catch { return ''; }
+    try { permission = await Notification.requestPermission(); } catch (error) {
+      console.debug(getErrorMessage(error, 'Browser notification permission was not available.'));
+      return '';
+    }
   }
   if (permission !== 'granted') return '';
   const registration = await getPushServiceWorker();
@@ -63,7 +72,8 @@ export async function getPushToken({ requestPermission = false } = {}) {
     const token = await getToken(messaging, { vapidKey, serviceWorkerRegistration: registration });
     if (token) localStorage.setItem('FCM_TOKEN', token);
     return token || '';
-  } catch {
+  } catch (error) {
+    console.debug(getErrorMessage(error, 'Firebase could not generate a browser notification token.'));
     return '';
   }
 }
@@ -80,7 +90,7 @@ export async function deletePushToken() {
   localStorage.removeItem('FCM_TOKEN');
   const messaging = await getMessagingClient();
   if (!messaging) return;
-  try { await deleteToken(messaging); } catch { /* A stale token is harmless after logout. */ }
+  try { await deleteToken(messaging); } catch (error) { console.debug(getErrorMessage(error, 'Could not revoke the browser notification token.')); }
 }
 
 export function getNotificationRoute(data = {}, role = '') {

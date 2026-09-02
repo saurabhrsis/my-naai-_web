@@ -40,8 +40,6 @@ Enable the **Web Push certificates** API in Firebase Cloud Messaging and copy th
 
 `src/lib/api.js` preserves the mobile app's endpoint names and payload conventions, including OTP login, salon discovery, bookings, queue actions, services, products, notifications, image upload and subscription flows. Auth state uses the same storage keys (`mynaai`, `mynaaiUser`, `userType`, `isLoggedIn`, and `isNewSalon`) so a migrated web session follows the same shape. The browser FCM token is kept in `FCM_TOKEN` and removed on logout.
 
-For a quick review without SMS or payment credentials, the login screen includes customer and salon workspace previews. Preview data is intentionally isolated behind `mynaaiDemo` and never sent to the API.
-
 The complete portal behavior and operational notes are in [`docs/MY-NAAI-WEB-PORTAL.md`](docs/MY-NAAI-WEB-PORTAL.md). Firebase setup, browser token generation and notification payload processing are documented in [`docs/FIREBASE-WEB-PUSH.md`](docs/FIREBASE-WEB-PUSH.md).
 
 ## PWA

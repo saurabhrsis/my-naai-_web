@@ -41,7 +41,6 @@ The web session uses these keys:
 | `userType` | `USER` or `SALON` |
 | `isLoggedIn` | Boolean-like string used to restore the session |
 | `isNewSalon` | Salon registration state |
-| `mynaaiDemo` | Marks the local preview workspace; demo data never goes to the API |
 | `FCM_TOKEN` | Browser-only Firebase registration token, when push is configured |
 | `hasSeenOnboarding` | Local onboarding preference |
 
@@ -53,7 +52,7 @@ The app listens for relevant `localStorage` changes, so signing out or changing 
 
 The first-load onboarding/login experience offers a visible **Enable alerts** action. The same status card remains available at the top of the authenticated workspace whenever the browser token is missing. It distinguishes an unconfigured Firebase project, a denied permission and a token-generation failure; a blocked permission is never silently ignored. The action can be retried after the user changes the site permission in browser settings.
 
-Real customer and salon authentication is blocked until Firebase Web Push returns a non-empty registration token. That token is sent as `deviceToken` in the OTP verification/onboarding contract and is cached as `FCM_TOKEN`. Demo workspaces are local previews and do not call the API.
+Real customer and salon authentication is blocked until Firebase Web Push returns a non-empty registration token. That token is sent as `deviceToken` in the OTP verification/onboarding contract and is cached as `FCM_TOKEN`.
 
 ### Incomplete salon profile guard
 
@@ -63,7 +62,7 @@ After salon login, `isNewSalon` or `profileCompleted: false` routes to **Complet
 
 ### Walk-in customer is disabled
 
-The walk-in customer flow has been intentionally commented out and removed from the visible salon queue UI. The old implementation remains in `src/components/SalonScreens.jsx` as a commented block for possible future re-enable; the old API method is retained only for API parity/future work.
+The walk-in customer flow is not exposed in the web portal. The legacy `walkInBooking` API method remains only because the REST client must preserve the mobile API surface; no screen calls it.
 
 ### Token number is no longer displayed
 
