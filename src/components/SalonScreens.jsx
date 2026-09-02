@@ -4,6 +4,7 @@ import {
   CalendarDays,
   Check,
   CheckCircle2,
+  ChevronDown,
   ChevronRight,
   Clock3,
   Crown,
@@ -28,9 +29,10 @@ import {
 } from 'lucide-react';
 import { api, getFileUrl, setToken } from '../lib/api';
 import { DEFAULT_SERVICES } from '../lib/defaultServices';
+import { FREE_ONBOARDING_PLAN, normalizePlanDetails, PARTNER_PLANS, RENEWAL_PLANS } from '../lib/planDetails';
 import { STATE_OPTIONS } from '../lib/stateOptions';
 import { SALON_ABOUT_CONTENT, SALON_FAQ_CONTENT, SALON_TERMS_CONTENT } from '../lib/salonContent';
-import { io } from 'socket.io-client';
+import { subscribeToLiveUpdates } from '../lib/socket';
 import {
   Button,
   EmptyState,
@@ -97,11 +99,9 @@ export function SalonQueueScreen({ session, navigate, notify }) {
     try { const response = await api.customerList({ salonId: session.userId, page: 1 }); setItems(getList(response, ['bookings', 'customers'])); } catch (error) { notify?.('error', getErrorMessage(error, 'Unable to load your queue.')); } finally { setLoading(false); }
   }, [notify, session.userId]);
   useEffect(() => { load(); }, [load]);
-  useEffect(() => {
-    let socket;
-    try { socket = io((import.meta.env.VITE_API_BASE_URL || 'https://backend.mynaai.in').replace(/\/$/, ''), { transports: ['websocket'] }); socket.on('connect', () => socket.emit('join_salon', String(session.userId))); socket.on('queue_updated', () => load()); } catch (error) { console.debug(getErrorMessage(error, 'Live queue updates are unavailable; using refresh.')); }
-    return () => socket?.disconnect();
-  }, [load, session.userId]);
+  // Live queue updates ride the shared portal socket (polling → WebSocket) so a
+  // blocked WebSocket upgrade degrades gracefully instead of failing outright.
+  useEffect(() => subscribeToLiveUpdates({ scope: 'salon', id: session.userId, event: 'queue_updated', handler: () => load(true) }), [load, session.userId]);
   const markDone = async bookingId => {
     if (!window.confirm('Mark this service as completed?')) return;
     setDoneId(bookingId);
@@ -215,13 +215,14 @@ export function SalonAccountScreen({ session, navigate, notify, onSessionUpdate 
   const [profile, setProfile] = useState(initialProfile);
   const [loading, setLoading] = useState(true);
   const [isOpen, setIsOpen] = useState(Boolean(initialProfile.isOpen));
+  const planDetails = useMemo(() => normalizePlanDetails(profile), [profile]);
   const load = useCallback(async () => { setLoading(true); try { const response = await api.salonProfile({ salonId: session.userId }); if (response?.status === 'SUCCESS') { const data = getSalonData(response); setProfile(data); setIsOpen(getSalonStatus(data.businessHours, data.isOpen).isOpen); const incomplete = salonProfileNeedsCompletion(data); onSessionUpdate?.(data, incomplete ? { isNewSalon: true } : { isNewSalon: false }); if (incomplete) navigate('editProfile', { isOnboarding: 'true' }, { replace: true }); } } catch (error) { notify?.('error', getErrorMessage(error, 'Unable to load salon profile.')); } finally { setLoading(false); } }, [navigate, notify, onSessionUpdate, session.userId]);
   useEffect(() => { load(); }, [load]);
   const toggleOpen = async () => { const next = !isOpen; setIsOpen(next); try { const response = await api.SalonOpenClose({ salonId: session.userId, isOpen: next }); if (response?.status && response.status !== 'SUCCESS') throw new Error(response.message || 'Could not update status'); notify?.('success', next ? 'Salon is now open.' : 'Salon is now closed.'); } catch (error) { setIsOpen(!next); notify?.('error', getErrorMessage(error, 'Could not update salon status.')); } };
   if (loading) return <div className="screen salon-account-screen"><PageHeader title="Salon account" /><div className="account-loading"><Spinner label="Loading salon profile…" /></div></div>;
   const status = getSalonStatus(profile.businessHours, isOpen);
   const menus = [{ label: 'Edit salon profile', caption: 'Photos, hours, services and specialists', icon: Edit3, route: 'editProfile' }, { label: 'About MyNaai', caption: 'How MyNaai helps your business', icon: Store, route: 'salonAbout' }, { label: 'Frequently asked questions', caption: 'Partner help and booking basics', icon: Bell, route: 'salonFaq' }, { label: 'Terms & conditions', caption: 'Partner terms', icon: Receipt, route: 'salonTerms' }, { label: 'Subscription plans', caption: 'Upgrade or renew your plan', icon: WalletCards, route: 'subscription', params: { isUpgrade: true } }, { label: 'Need a hand?', caption: 'Call 8380017393', icon: Phone, action: () => window.open('tel:8380017393') }];
-  return <div className="screen salon-account-screen"><PageHeader title="Salon account" subtitle="Your business, in one place." action={<button className="refresh-text-button" onClick={load}><Zap size={15} /> Refresh</button>} /><section className="salon-profile-hero"><div className="salon-profile-photo"><ImageWithFallback src={profile.imageUrl || profile.imagesArray?.[0]} fallback="/assets/my_naai.png" alt={profile.salonName || 'Salon'} /></div><div className="salon-profile-copy"><span className="eyebrow">SALON PARTNER</span><h2>{profile.salonName || 'Your salon'}</h2><p><MapPin size={14} /> {profile.addressLine1 || profile.city || 'Add your salon address'}</p><span className={cx('account-status', status.isOpen ? 'open' : 'closed')}><i /> {status.isOpen ? 'Open for bookings' : 'Closed for bookings'}</span></div><Button size="small" variant="secondary" onClick={() => navigate('editProfile')}><Pencil size={15} /> Edit</Button></section><div className="salon-live-status"><div><span className="eyebrow">BOOKING STATUS</span><strong>{status.isOpen ? 'Customers can book you now' : 'Your salon is currently closed'}</strong><small>Toggle this when you are ready to take the next appointment.</small></div><Toggle checked={isOpen} onChange={toggleOpen} label={isOpen ? 'Open' : 'Closed'} /></div><div className="salon-profile-stats"><div><strong>{profile.services?.length || 0}</strong><span>Services</span></div><div><strong>{profile.barbers?.length || 0}</strong><span>Specialists</span></div><div><strong>{Number(profile.ratingAverage || 0).toFixed(1)}</strong><span>Rating</span></div></div><div className="account-card partner-menu">{menus.map(item => <button className="account-menu-row" key={item.label} onClick={item.action || (() => navigate(item.route, item.params || {}))}><span className="account-menu-icon"><item.icon size={18} /></span><span><strong>{item.label}</strong><small>{item.caption}</small></span><ChevronRight size={17} /></button>)}</div><p className="version-label">MyNaai partner portal · 1.0</p></div>;
+  return <div className="screen salon-account-screen"><PageHeader title="Salon account" subtitle="Your business, in one place." action={<button className="refresh-text-button" onClick={load}><Zap size={15} /> Refresh</button>} /><section className="salon-profile-hero"><div className="salon-profile-photo"><ImageWithFallback src={profile.imageUrl || profile.imagesArray?.[0]} fallback="/assets/brand/naai-logo-dark.svg" alt={profile.salonName || 'Salon'} /></div><div className="salon-profile-copy"><span className="eyebrow">SALON PARTNER</span><h2>{profile.salonName || 'Your salon'}</h2><p><MapPin size={14} /> {profile.addressLine1 || profile.city || 'Add your salon address'}</p><span className={cx('account-status', status.isOpen ? 'open' : 'closed')}><i /> {status.isOpen ? 'Open for bookings' : 'Closed for bookings'}</span></div><Button size="small" variant="secondary" onClick={() => navigate('editProfile')}><Pencil size={15} /> Edit</Button></section><div className="salon-live-status"><div><span className="eyebrow">BOOKING STATUS</span><strong>{status.isOpen ? 'Customers can book you now' : 'Your salon is currently closed'}</strong><small>Toggle this when you are ready to take the next appointment.</small></div><Toggle checked={isOpen} onChange={toggleOpen} label={isOpen ? 'Open' : 'Closed'} /></div><div className="salon-profile-stats"><div><strong>{profile.services?.length || 0}</strong><span>Services</span></div><div><strong>{profile.barbers?.length || 0}</strong><span>Barbers</span></div><div><strong>{Number(profile.ratingAverage || 0).toFixed(1)}</strong><span>Rating</span></div></div>{planDetails ? <section className={cx('account-card', 'plan-card', !planDetails.isActive && 'plan-expired')}><div className="plan-card-top"><span className="plan-card-mark"><Crown size={18} /></span><div className="plan-card-title"><span className="eyebrow">{planDetails.isActive ? 'ACTIVE PLAN' : 'PLAN EXPIRED'}</span><strong>{planDetails.title}</strong><small>{planDetails.price !== null && planDetails.price > 0 ? `${formatCurrency(planDetails.price)}${planDetails.duration ? ` · ${planDetails.duration}` : ''}` : planDetails.duration || 'MyNaai partner plan'}</small></div><StatusPill tone={planDetails.isActive ? 'open' : 'closed'} dot>{planDetails.isActive ? 'Active' : 'Expired'}</StatusPill></div><div className="plan-card-meta">{planDetails.startDate && <div><CalendarDays size={14} /><span><small>Started</small><strong>{formatDate(planDetails.startDate)}</strong></span></div>}{planDetails.expiryDate && <div><Clock3 size={14} /><span><small>{planDetails.isActive ? 'Expires' : 'Expired on'}</small><strong>{formatDate(planDetails.expiryDate)}</strong></span></div>}{planDetails.daysLeft !== null && <div><Zap size={14} /><span><small>Remaining</small><strong>{planDetails.daysLeft > 0 ? `${planDetails.daysLeft} day${planDetails.daysLeft === 1 ? '' : 's'} left` : 'Renewal due'}</strong></span></div>}</div><Button size="small" variant={planDetails.isActive ? 'secondary' : 'primary'} onClick={() => navigate('subscription', { isUpgrade: true })}>{planDetails.isActive ? 'Manage plan' : 'Renew plan'}</Button></section> : <section className="account-card plan-card plan-unknown"><div className="plan-card-top"><span className="plan-card-mark"><Crown size={18} /></span><div className="plan-card-title"><span className="eyebrow">SUBSCRIPTION</span><strong>Plan details unavailable</strong><small>Keep your salon visible with an active plan.</small></div></div><Button size="small" onClick={() => navigate('subscription', { isUpgrade: true })}>View plans</Button></section>}<div className="account-card partner-menu">{menus.map(item => <button className="account-menu-row" key={item.label} onClick={item.action || (() => navigate(item.route, item.params || {}))}><span className="account-menu-icon"><item.icon size={18} /></span><span><strong>{item.label}</strong><small>{item.caption}</small></span><ChevronRight size={17} /></button>)}</div><p className="version-label">MyNaai partner portal · 1.0</p></div>;
 }
 
 function getEditorBusinessHour(value = {}) {
@@ -239,6 +240,47 @@ function editorTime(value, fallback) {
 
 function apiTime(value) {
   return `${String(value || '09:00').slice(0, 5)}:00`;
+}
+
+// Collapsible editor section — mirrors the mobile app's EditSalonProfileScreen,
+// where every group (Owner Information, Salon Information, Address & Location,
+// Salon Images, Business Hours, Salon Services, Barbers) is a toggleable card.
+function CollapsibleSection({ id, icon, title, summary, count, open, onToggle, headingActions, children }) {
+  return (
+    <section className={cx('editor-section collapsible-section', open && 'open')} data-section={id}>
+      <div className="editor-section-heading collapsible-heading">
+        <button type="button" className="collapsible-toggle" onClick={onToggle} aria-expanded={open} aria-controls={`editor-section-body-${id}`}>
+          <span className="editor-section-icon">{icon}</span>
+          <span className="collapsible-title">
+            <h2>{title}</h2>
+            {!open && summary && <p>{summary}</p>}
+          </span>
+          {count !== undefined && count !== null && <span className="collapsible-count">{count}</span>}
+          <ChevronDown size={17} className="collapsible-chevron" />
+        </button>
+        {headingActions && <div className="editor-heading-actions">{headingActions}</div>}
+      </div>
+      <div id={`editor-section-body-${id}`} className={cx('collapsible-body-wrap', open && 'open')}><div className="collapsible-body">{children}</div></div>
+    </section>
+  );
+}
+
+// Collapsible service/barber card, matching the mobile app's expandable items.
+function CollapsibleEditorCard({ idPrefix, icon, image, title, subtitle, expanded, onToggle, onDelete, deleteLabel, children }) {
+  return (
+    <div className={cx('editor-item collapsible-item', expanded && 'open')}>
+      <div className="collapsible-item-heading">
+        {image || <span className="editor-section-icon small">{icon}</span>}
+        <button type="button" className="collapsible-item-toggle" onClick={onToggle} aria-expanded={expanded} aria-controls={`editor-item-body-${idPrefix}`}>
+          <strong>{title}</strong>
+          {!expanded && subtitle && <small>{subtitle}</small>}
+          <ChevronDown size={16} className="collapsible-chevron" />
+        </button>
+        <button type="button" className="item-delete-button" onClick={onDelete} aria-label={deleteLabel}><Trash2 size={15} /></button>
+      </div>
+      <div id={`editor-item-body-${idPrefix}`} className={cx('collapsible-body-wrap', expanded && 'open')}><div className="collapsible-body">{children}</div></div>
+    </div>
+  );
 }
 
 export function EditSalonProfileScreen({ params, session, navigate, notify, onSessionUpdate }) {
@@ -274,6 +316,16 @@ export function EditSalonProfileScreen({ params, session, navigate, notify, onSe
   const [locationLoading, setLocationLoading] = useState(false);
   const [locationVerified, setLocationVerified] = useState(false);
   const [locationError, setLocationError] = useState('');
+  // Collapsible groups default to the mobile app's layout: Owner Information
+  // and Salon Information open, the rest collapsed. During onboarding every
+  // group starts open so first-time partners see the whole setup.
+  const [openSections, setOpenSections] = useState(() => isOnboarding
+    ? { owner: true, salon: true, address: true, images: true, businessHours: true, services: true, barbers: true }
+    : { owner: true, salon: true, address: false, images: false, businessHours: false, services: false, barbers: false });
+  const [expandedItems, setExpandedItems] = useState({});
+  const planDetails = useMemo(() => normalizePlanDetails(profile), [profile]);
+  const toggleSection = key => setOpenSections(current => ({ ...current, [key]: !current[key] }));
+  const toggleItem = key => setExpandedItems(current => ({ ...current, [key]: !current[key] }));
 
   const populate = useCallback(data => {
     const next = data || {};
@@ -385,8 +437,16 @@ export function EditSalonProfileScreen({ params, session, navigate, notify, onSe
   });
   const updateService = (id, key, value) => setServices(current => current.map(item => item.id === id ? { ...item, [key]: value } : item));
   const updateBarber = (id, key, value) => setBarbers(current => current.map(item => item.id === id ? { ...item, [key]: value } : item));
-  const addService = () => setServices(current => [...current, normalizeService({ id: `new-service-${Date.now()}` }, current.length)]);
-  const addBarber = () => setBarbers(current => [...current, normalizeBarber({ id: `new-barber-${Date.now()}` }, current.length)]);
+  const addService = () => {
+    const item = normalizeService({ id: `new-service-${Date.now()}` }, 0);
+    setServices(current => [...current, item]);
+    setExpandedItems(current => ({ ...current, [`service-${item.id}`]: true }));
+  };
+  const addBarber = () => {
+    const item = normalizeBarber({ id: `new-barber-${Date.now()}` }, 0);
+    setBarbers(current => [...current, item]);
+    setExpandedItems(current => ({ ...current, [`barber-${item.id}`]: true }));
+  };
   const selectBarberImage = (id, event) => {
     const file = event.target.files?.[0];
     event.target.value = '';
@@ -406,6 +466,7 @@ export function EditSalonProfileScreen({ params, session, navigate, notify, onSe
     if (!defaults.length) return notify?.('error', 'Choose a salon type before loading default services.');
     if (services.length && !window.confirm('Replace the current services with the defaults for this salon type?')) return;
     setServices(defaults);
+    setExpandedItems(current => ({ ...current, ...Object.fromEntries(defaults.map(item => [`service-${item.id}`, true])) }));
   };
   const changeGenderType = event => {
     const nextType = event.target.value;
@@ -450,27 +511,30 @@ export function EditSalonProfileScreen({ params, session, navigate, notify, onSe
   };
 
   const validate = () => {
-    if (!salonId) return 'Salon ID is unavailable. Please sign in again.';
-    if (!ownerName.trim()) return 'Please enter the salon owner name.';
-    if (!salonName.trim()) return 'Please enter the salon name.';
-    if (phoneNumber.replace(/\D/g, '').length !== 10) return 'Please enter a valid 10-digit mobile number.';
-    if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) return 'Please enter a valid email address.';
-    if (!genderType) return 'Please select the salon type.';
-    if (!addressLine1.trim()) return 'Please enter the salon address.';
-    if (agentCode.trim() && !/^\d{10}$/.test(agentCode.trim())) return 'Agent code must be exactly 10 digits or blank.';
-    if (pincode.trim() && !/^\d{6}$/.test(pincode.trim())) return 'Pincode must contain 6 digits.';
-    if (!locationVerified || !hasCoordinate(latitude) || !hasCoordinate(longitude) || Number(latitude) < -90 || Number(latitude) > 90 || Number(longitude) < -180 || Number(longitude) > 180) return 'Allow location access and detect the salon location before continuing.';
-    if (openTime === closeTime) return 'Opening and closing time cannot be the same.';
-    if (!services.length) return 'Please add at least one salon service.';
-    if (services.some(item => !item.name.trim() || item.price === '' || !Number.isFinite(Number(item.price)) || Number(item.price) < 0 || !item.duration || !Number.isFinite(Number(item.duration)) || Number(item.duration) <= 0)) return 'Enter a valid service name, price and duration for every service.';
-    if (barbers.some(item => !item.name.trim())) return 'Please enter the name of every specialist.';
-    return '';
+    if (!salonId) return { message: 'Salon ID is unavailable. Please sign in again.', section: '' };
+    if (!ownerName.trim()) return { message: 'Please enter the Salon Owner Name.', section: 'owner' };
+    if (!salonName.trim()) return { message: 'Please enter the Salon Name.', section: 'salon' };
+    if (phoneNumber.replace(/\D/g, '').length !== 10) return { message: 'Please enter a valid 10-digit Mobile Number.', section: 'owner' };
+    if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) return { message: 'Please enter a valid Email Address.', section: 'owner' };
+    if (!genderType) return { message: 'Please select the Salon Type.', section: 'salon' };
+    if (agentCode.trim() && !/^\d{10}$/.test(agentCode.trim())) return { message: 'Agent Code must be exactly 10 digits or blank.', section: 'salon' };
+    if (!addressLine1.trim()) return { message: 'Please enter the Complete Address.', section: 'address' };
+    if (pincode.trim() && !/^\d{6}$/.test(pincode.trim())) return { message: 'Pincode must contain 6 digits.', section: 'address' };
+    if (!locationVerified || !hasCoordinate(latitude) || !hasCoordinate(longitude) || Number(latitude) < -90 || Number(latitude) > 90 || Number(longitude) < -180 || Number(longitude) > 180) return { message: 'Allow location access and detect the salon location before continuing.', section: 'address' };
+    if (openTime === closeTime) return { message: 'Opening Time and Closing Time cannot be the same.', section: 'businessHours' };
+    if (!services.length) return { message: 'Please add at least one salon service.', section: 'services' };
+    if (services.some(item => !item.name.trim() || item.price === '' || !Number.isFinite(Number(item.price)) || Number(item.price) < 0 || !item.duration || !Number.isFinite(Number(item.duration)) || Number(item.duration) <= 0)) return { message: 'Enter a valid Service Name, Price and Duration for every service.', section: 'services' };
+    if (barbers.some(item => !item.name.trim())) return { message: 'Please enter the Barber Name of every team member.', section: 'barbers' };
+    return null;
   };
 
   const save = async event => {
     event.preventDefault();
     const validationError = validate();
-    if (validationError) return notify?.('error', validationError);
+    if (validationError) {
+      if (validationError.section) setOpenSections(current => ({ ...current, [validationError.section]: true }));
+      return notify?.('error', validationError.message);
+    }
     setSaving(true);
     try {
       const uploadedImages = [];
@@ -556,28 +620,75 @@ export function EditSalonProfileScreen({ params, session, navigate, notify, onSe
   if (loading) return <div className="screen"><PageHeader title="Edit salon profile" /><div className="account-loading"><Spinner label="Loading profile…" /></div></div>;
   const hasLocation = locationVerified && hasCoordinate(latitude) && hasCoordinate(longitude);
   const locationMessage = locationLoading ? 'Detecting current location…' : locationError || 'Allow location access so nearby customers can discover this salon.';
-  return <div className="screen edit-salon-screen"><PageHeader title={isOnboarding ? 'Complete salon profile' : 'Edit salon profile'} subtitle={isOnboarding ? 'Add the details customers need before you open your dashboard.' : 'Give customers a clear picture of your business.'} onBack={isOnboarding ? undefined : () => navigate(-1)} action={<button className="refresh-text-button" type="button" onClick={refreshProfile} disabled={loading}><RefreshCw size={15} /> Refresh</button>} /><form className="profile-editor" onSubmit={save}>
-    <section className="editor-section"><div className="editor-section-heading"><div><span className="eyebrow">01 · BASICS</span><h2>Salon details</h2><p>These details are shown to customers and used for booking.</p></div><Store size={20} /></div><div className="form-two-col"><Field label="Salon name"><input value={salonName} onChange={event => setSalonName(event.target.value)} placeholder="Your salon name" /></Field><Field label="Owner name"><input value={ownerName} onChange={event => setOwnerName(event.target.value)} placeholder="Owner name" /></Field></div><div className="form-two-col"><Field label="Phone number" hint={profile.phoneNumber ? 'The login number is managed by OTP authentication.' : '10 digits required'}><input inputMode="numeric" value={phoneNumber} onChange={event => setPhoneNumber(event.target.value.replace(/\D/g, '').slice(0, 10))} readOnly={Boolean(profile.phoneNumber)} placeholder="10-digit mobile number" /></Field><Field label="Email" hint="Optional"><input type="email" value={email} onChange={event => setEmail(event.target.value)} placeholder="owner@example.com" /></Field></div><SelectField label="Salon type" value={genderType} onChange={changeGenderType} options={[{ value: 'MALE', label: 'Male' }, { value: 'FEMALE', label: 'Female' }, { value: 'UNISEX', label: 'Unisex' }]} placeholder="Select salon type" /><Field label="Agent code" hint="Optional · exactly 10 digits"><input inputMode="numeric" maxLength="10" value={agentCode} onChange={event => setAgentCode(event.target.value.replace(/\D/g, '').slice(0, 10))} placeholder="Optional agent code" /></Field><div className="switch-form-row"><span><strong>Accept new bookings</strong><small>Keep the salon active in customer discovery.</small></span><Toggle checked={isActive} onChange={setIsActive} /></div></section>
-    <section className="editor-section"><div className="editor-section-heading"><div><span className="eyebrow">02 · ADDRESS & LOCATION</span><h2>Where customers can find you</h2><p>Accurate coordinates power nearby salon sorting.</p></div><MapPin size={20} /></div><Field label="Address line 1"><textarea value={addressLine1} onChange={event => setAddressLine1(event.target.value)} placeholder="Street, area, building" rows="3" /></Field><Field label="Address line 2" hint="Optional"><input value={addressLine2} onChange={event => setAddressLine2(event.target.value)} placeholder="Landmark or nearby place" /></Field><div className="form-three-col editor-address-grid"><Field label="City"><input value={city} onChange={event => setCity(event.target.value)} placeholder="City" /></Field><SelectField label="State" value={state} onChange={event => setState(event.target.value)} options={STATE_OPTIONS} placeholder="Select state" /><Field label="Pincode"><input inputMode="numeric" maxLength="6" value={pincode} onChange={event => setPincode(event.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="Pincode" /></Field></div><div className={cx('editor-location-status', hasLocation ? 'location-ready' : 'location-missing')}><MapPin size={17} /><span><strong>{hasLocation ? 'Location saved' : 'Location required'}</strong><small>{hasLocation ? `${Number(latitude).toFixed(6)}, ${Number(longitude).toFixed(6)}` : locationMessage}</small></span></div><Button type="button" size="small" variant="secondary" onClick={detectLocation} loading={locationLoading}><MapPin size={15} /> Detect current location</Button></section>
-    <section className="editor-section"><div className="editor-section-heading"><div><span className="eyebrow">03 · ATMOSPHERE</span><h2>Salon photos</h2><p>Up to 4 photos · the first becomes your main image.</p></div><ImagePlus size={20} /></div><div className="editor-photo-grid">{images.map((image, index) => <div className="editor-photo" key={`${typeof image === 'string' ? image : image.preview}-${index}`}><ImageWithFallback src={typeof image === 'string' ? image : image.preview} fallback="/assets/my_naai.png" alt="Salon photo" /><label className="editor-photo-change" aria-label={`Replace salon photo ${index + 1}`}><Pencil size={13} /><input type="file" accept="image/*" onChange={event => replaceImage(index, event)} /></label><button type="button" onClick={() => removeImage(index)} aria-label={`Remove salon photo ${index + 1}`}><X size={15} /></button></div>)}{images.length < MAX_IMAGES && <label className="add-photo"><Plus size={20} /><span>Add photo</span><input type="file" accept="image/*" multiple onChange={addImages} /></label>}</div></section>
-    <section className="editor-section"><div className="editor-section-heading"><div><span className="eyebrow">04 · AVAILABILITY</span><h2>Opening hours</h2><p>Set when customers can request an appointment.</p></div><Clock3 size={20} /></div><div className="form-two-col"><Field label="Opens"><input type="time" value={openTime} onChange={event => setOpenTime(event.target.value)} /></Field><Field label="Closes"><input type="time" value={closeTime} onChange={event => setCloseTime(event.target.value)} /></Field></div><SelectField label="Weekly off" value={holiday} onChange={event => setHoliday(event.target.value)} placeholder="No weekly off" options={['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].map((day, index) => ({ value: String(index), label: day }))} /></section>
-    <section className="editor-section"><div className="editor-section-heading"><div><span className="eyebrow">05 · MENU</span><h2>Services</h2><p>Every service needs a name, price and duration.</p></div><div className="editor-heading-actions"><button type="button" className="add-inline-button" onClick={loadDefaultServices}><RefreshCw size={14} /> Defaults</button><button type="button" className="add-inline-button" onClick={addService}><Plus size={15} /> Add service</button></div></div><div className="editor-items">{services.map(item => <div className="editor-item" key={item.id}><div className="editor-item-title"><Scissors size={15} /><strong>{item.name || 'New service'}</strong><button type="button" onClick={() => removeService(item.id)} aria-label="Delete service"><Trash2 size={15} /></button></div><div className="form-three-col"><input value={item.name} onChange={event => updateService(item.id, 'name', event.target.value)} placeholder="Service name" /><input type="number" min="0" value={item.price} onChange={event => updateService(item.id, 'price', event.target.value)} placeholder="Price" /><input type="number" min="5" value={item.duration} onChange={event => updateService(item.id, 'duration', event.target.value)} placeholder="Minutes" /></div><textarea className="editor-description" value={item.description} onChange={event => updateService(item.id, 'description', event.target.value)} placeholder="Short service description" rows="2" /></div>)}</div>{!services.length && <div className="editor-empty">No services added yet. Load defaults or add one manually.</div>}</section>
-    <section className="editor-section"><div className="editor-section-heading"><div><span className="eyebrow">06 · PEOPLE</span><h2>Specialists</h2><p>Add the people customers can choose during booking.</p></div><button type="button" className="add-inline-button" onClick={addBarber}><Plus size={15} /> Add specialist</button></div><div className="editor-items">{barbers.map(item => <div className="editor-item barber-editor-item" key={item.id}><div className="editor-item-title"><label className="editor-barber-image" aria-label={`Replace photo for ${item.name || 'new specialist'}`}><ImageWithFallback src={item.image} fallback="/assets/my_naai.png" alt="" /><span><Pencil size={11} /></span><input type="file" accept="image/*" onChange={event => selectBarberImage(item.id, event)} /></label><strong>{item.name || 'New specialist'}</strong><button type="button" onClick={() => removeBarber(item.id)} aria-label="Delete specialist"><Trash2 size={15} /></button></div><div className="form-two-col"><input value={item.name} onChange={event => updateBarber(item.id, 'name', event.target.value)} placeholder="Full name" /><input type="number" min="0" max="5" step="0.1" value={item.rating} onChange={event => updateBarber(item.id, 'rating', event.target.value)} placeholder="Rating" /></div><Toggle checked={item.isAvailable} onChange={value => updateBarber(item.id, 'isAvailable', value)} label={item.isAvailable ? 'Available' : 'Away'} /></div>)}</div>{!barbers.length && <div className="editor-empty">No specialists added. Customers can still choose any available chair.</div>}</section>
+  const ownerSummary = `${ownerName.trim() || 'Name pending'} · ${phoneNumber ? `+91 ${phoneNumber}` : 'Mobile Number pending'}`;
+  const salonSummary = `${salonName.trim() || 'Name pending'} · ${genderType || 'Salon Type pending'}`;
+  const addressSummary = `${addressLine1.trim() || 'Address pending'}${city.trim() ? `, ${city.trim()}` : ''}`;
+  const hoursSummary = `${formatTime(openTime)} – ${formatTime(closeTime)}${holiday !== '' ? ' · Weekly off set' : ''}`;
+  const planExpiryLine = planDetails?.expiryDate
+    ? planDetails.isActive
+      ? `Expires ${formatDate(planDetails.expiryDate)}${planDetails.daysLeft !== null && planDetails.daysLeft >= 0 ? ` · ${planDetails.daysLeft} day${planDetails.daysLeft === 1 ? '' : 's'} left` : ''}`
+      : `Expired on ${formatDate(planDetails.expiryDate)}`
+    : 'Active subscription';
+  return <div className="screen edit-salon-screen"><PageHeader title={isOnboarding ? 'Complete salon profile' : 'Edit salon profile'} subtitle={isOnboarding ? 'Add the details customers need before you open your dashboard.' : 'Give customers a clear picture of your business.'} onBack={isOnboarding ? undefined : () => navigate(-1)} action={<button className="refresh-text-button" type="button" onClick={refreshProfile} disabled={loading}><RefreshCw size={15} /> Refresh</button>} />
+    {planDetails && <div className={cx('editor-plan-strip', planDetails.isActive ? 'active' : 'expired')}><span className="editor-plan-mark"><Crown size={14} /></span><span className="editor-plan-copy"><strong>{planDetails.title}</strong><small>{planDetails.price !== null && planDetails.price > 0 ? `${formatCurrency(planDetails.price)} · ${planExpiryLine}` : planExpiryLine}</small></span>{!isOnboarding && <button type="button" onClick={() => navigate('subscription', { isUpgrade: true })}>Manage plan</button>}</div>}
+    <form className="profile-editor" onSubmit={save}>
+    <CollapsibleSection id="owner" icon={<UserRound size={17} />} title="Owner Information" summary={ownerSummary} open={openSections.owner} onToggle={() => toggleSection('owner')}>
+      <div className="form-two-col"><Field label="Salon Owner Name"><input value={ownerName} onChange={event => setOwnerName(event.target.value)} placeholder="Enter salon owner name" /></Field><Field label="Mobile Number" hint={profile.phoneNumber ? 'The login number is managed by OTP authentication.' : '10 digits required'}><input inputMode="numeric" value={phoneNumber} onChange={event => setPhoneNumber(event.target.value.replace(/\D/g, '').slice(0, 10))} readOnly={Boolean(profile.phoneNumber)} placeholder="Enter mobile number" /></Field></div>
+      <Field label="Email Address" hint="Optional"><input type="email" value={email} onChange={event => setEmail(event.target.value)} placeholder="Enter email address" /></Field>
+    </CollapsibleSection>
+    <CollapsibleSection id="salon" icon={<Store size={17} />} title="Salon Information" summary={salonSummary} open={openSections.salon} onToggle={() => toggleSection('salon')}>
+      <Field label="Salon Name"><input value={salonName} onChange={event => setSalonName(event.target.value)} placeholder="Enter salon name" /></Field>
+      <SelectField label="Salon Type" value={genderType} onChange={changeGenderType} options={[{ value: 'MALE', label: 'Male' }, { value: 'FEMALE', label: 'Female' }, { value: 'UNISEX', label: 'Unisex' }]} placeholder="Select salon type" />
+      <Field label="Agent Code" hint="Optional · exactly 10 digits"><input inputMode="numeric" maxLength="10" value={agentCode} onChange={event => setAgentCode(event.target.value.replace(/\D/g, '').slice(0, 10))} placeholder="Optional 10-digit agent code" /></Field>
+      <div className="switch-form-row"><span><strong>Accept new bookings</strong><small>Keep the salon active in customer discovery.</small></span><Toggle checked={isActive} onChange={setIsActive} /></div>
+    </CollapsibleSection>
+    <CollapsibleSection id="address" icon={<MapPin size={17} />} title="Address & Location" summary={addressSummary} open={openSections.address} onToggle={() => toggleSection('address')}>
+      <Field label="Complete Address"><textarea value={addressLine1} onChange={event => setAddressLine1(event.target.value)} placeholder="House number, street, area, building" rows="3" /></Field>
+      <Field label="Landmark / Address Line 2" hint="Optional"><input value={addressLine2} onChange={event => setAddressLine2(event.target.value)} placeholder="Nearby landmark" /></Field>
+      <div className="form-three-col editor-address-grid"><Field label="City"><input value={city} onChange={event => setCity(event.target.value)} placeholder="City" /></Field><SelectField label="State" value={state} onChange={event => setState(event.target.value)} options={STATE_OPTIONS} placeholder="Select state" /><Field label="Pincode"><input inputMode="numeric" maxLength="6" value={pincode} onChange={event => setPincode(event.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="Pincode" /></Field></div>
+      <div className={cx('editor-location-status', hasLocation ? 'location-ready' : 'location-missing')}><MapPin size={17} /><span><strong>{hasLocation ? 'Location saved' : 'Location required'}</strong><small>{hasLocation ? `${Number(latitude).toFixed(6)}, ${Number(longitude).toFixed(6)}` : locationMessage}</small></span></div>
+      <Button type="button" size="small" variant="secondary" onClick={detectLocation} loading={locationLoading}><MapPin size={15} /> Detect current location</Button>
+    </CollapsibleSection>
+    <CollapsibleSection id="images" icon={<ImagePlus size={17} />} title="Salon Images" summary={`${images.length} of ${MAX_IMAGES} photos added`} open={openSections.images} onToggle={() => toggleSection('images')}>
+      <p className="collapsible-lede">Up to {MAX_IMAGES} photos · the first becomes your main image.</p>
+      <div className="editor-photo-grid">{images.map((image, index) => <div className="editor-photo" key={`${typeof image === 'string' ? image : image.preview}-${index}`}><ImageWithFallback src={typeof image === 'string' ? image : image.preview} fallback="/assets/brand/naai-logo-dark.svg" alt="Salon photo" /><label className="editor-photo-change" aria-label={`Replace salon photo ${index + 1}`}><Pencil size={13} /><input type="file" accept="image/*" onChange={event => replaceImage(index, event)} /></label><button type="button" onClick={() => removeImage(index)} aria-label={`Remove salon photo ${index + 1}`}><X size={15} /></button></div>)}{images.length < MAX_IMAGES && <label className="add-photo"><Plus size={20} /><span>Add photo</span><input type="file" accept="image/*" multiple onChange={addImages} /></label>}</div>
+    </CollapsibleSection>
+    <CollapsibleSection id="businessHours" icon={<Clock3 size={17} />} title="Business Hours" summary={hoursSummary} open={openSections.businessHours} onToggle={() => toggleSection('businessHours')}>
+      <div className="form-two-col"><Field label="Opening Time"><input type="time" value={openTime} onChange={event => setOpenTime(event.target.value)} /></Field><Field label="Closing Time"><input type="time" value={closeTime} onChange={event => setCloseTime(event.target.value)} /></Field></div>
+      <SelectField label="Weekly Off" value={holiday} onChange={event => setHoliday(event.target.value)} placeholder="No weekly off" options={['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].map((day, index) => ({ value: String(index), label: day }))} />
+    </CollapsibleSection>
+    <CollapsibleSection id="services" icon={<Scissors size={17} />} title="Salon Services" count={services.length} open={openSections.services} onToggle={() => toggleSection('services')} headingActions={<>
+      <button type="button" className="add-inline-button" onClick={loadDefaultServices}><RefreshCw size={14} /> Load Default {genderType || ''} Services</button>
+      <button type="button" className="add-inline-button" onClick={addService}><Plus size={15} /> Add Service</button>
+    </>}>
+      <p className="collapsible-lede">Every service needs a Service Name, Price and Duration.</p>
+      <div className="editor-items">{services.map(item => {
+        const itemKey = `service-${item.id}`;
+        return <CollapsibleEditorCard idPrefix={itemKey} icon={<Scissors size={15} />} title={item.name || 'New Service'} subtitle={[item.price !== '' ? formatCurrency(item.price) : 'Price pending', `${item.duration || 0} min`].filter(Boolean).join(' · ')} expanded={Boolean(expandedItems[itemKey])} onToggle={() => toggleItem(itemKey)} onDelete={() => removeService(item.id)} deleteLabel={`Delete ${item.name || 'service'}`} key={item.id}>
+          <div className="form-three-col"><Field label="Service Name"><input value={item.name} onChange={event => updateService(item.id, 'name', event.target.value)} placeholder="Service name" /></Field><Field label="Price"><input type="number" min="0" value={item.price} onChange={event => updateService(item.id, 'price', event.target.value)} placeholder="₹ Price" /></Field><Field label="Duration"><input type="number" min="5" value={item.duration} onChange={event => updateService(item.id, 'duration', event.target.value)} placeholder="Minutes" /></Field></div>
+          <Field label="Description" hint="Optional"><textarea className="editor-description" value={item.description} onChange={event => updateService(item.id, 'description', event.target.value)} placeholder="Optional description" rows="2" /></Field>
+        </CollapsibleEditorCard>;
+      })}</div>
+      {!services.length && <div className="editor-empty">No services added yet. Load defaults or add one manually.</div>}
+    </CollapsibleSection>
+    <CollapsibleSection id="barbers" icon={<UsersRound size={17} />} title="Barbers" count={barbers.length} open={openSections.barbers} onToggle={() => toggleSection('barbers')} headingActions={<button type="button" className="add-inline-button" onClick={addBarber}><Plus size={15} /> Add Barber</button>}>
+      <p className="collapsible-lede">Add the people customers can choose during booking.</p>
+      <div className="editor-items">{barbers.map(item => {
+        const itemKey = `barber-${item.id}`;
+        return <CollapsibleEditorCard idPrefix={itemKey} image={<label className="editor-barber-image" aria-label={`Replace photo for ${item.name || 'new barber'}`}><ImageWithFallback src={item.image} fallback="/assets/brand/naai-logo-dark.svg" alt="" /><span><Pencil size={11} /></span><input type="file" accept="image/*" onChange={event => selectBarberImage(item.id, event)} /></label>} title={item.name || 'New Barber'} subtitle={item.isAvailable ? 'Available' : 'Away'} expanded={Boolean(expandedItems[itemKey])} onToggle={() => toggleItem(itemKey)} onDelete={() => removeBarber(item.id)} deleteLabel={`Delete ${item.name || 'barber'}`} key={item.id}>
+          <div className="form-two-col"><Field label="Barber Name"><input value={item.name} onChange={event => updateBarber(item.id, 'name', event.target.value)} placeholder="Barber name" /></Field><Field label="Rating" hint="Out of 5"><input type="number" min="0" max="5" step="0.1" value={item.rating} onChange={event => updateBarber(item.id, 'rating', event.target.value)} placeholder="Rating" /></Field></div>
+          <div className="switch-form-row"><span><strong>Availability</strong><small>Available barbers can be picked at booking.</small></span><Toggle checked={item.isAvailable} onChange={value => updateBarber(item.id, 'isAvailable', value)} /></div>
+        </CollapsibleEditorCard>;
+      })}</div>
+      {!barbers.length && <div className="editor-empty">No barbers added. Customers can still choose any available chair.</div>}
+    </CollapsibleSection>
     <div className="editor-actions"><Button type="button" variant="secondary" onClick={() => navigate(-1)} disabled={isOnboarding}>Cancel</Button><Button type="submit" loading={saving}>{isOnboarding ? 'Save and continue' : 'Save profile'} <Check size={17} /></Button></div>
   </form></div>;
 }
 
-const PARTNER_PLANS = [
-  { id: 'trial_2_months', title: 'Introductory', price: 299, duration: '2 months · 60 days', note: 'A gentle start for new partners' },
-  { id: 'monthly', title: 'Monthly plan', price: 199, duration: 'Per month', note: 'Flexible month-to-month growth' },
-  { id: 'quarterly', title: 'Quarterly plan', price: 499, duration: '3 months · 90 days', note: 'Best value for busy salons', best: true },
-];
-const RENEWAL_PLANS = [
-  { id: 'trial_2_months', title: 'Introductory', price: 179, duration: '2 months · 60 days', note: 'Restart with a simple plan' },
-  { id: 'monthly', title: 'Monthly plan', price: 99, duration: 'Per month', note: 'Flexible month-to-month growth' },
-  { id: 'quarterly', title: 'Quarterly plan', price: 249, duration: '3 months · 90 days', note: 'Best value for busy salons', best: true },
-];
-const FREE_ONBOARDING_PLAN = { id: 'Free', title: 'Free trial', displayPrice: '₹ 00', price: 0, duration: '20 days', note: 'Start your salon journey at no cost', best: true };
+// Plan catalog, renewal plans and the free onboarding plan live in
+// src/lib/planDetails.js so the subscription picker and the active-plan
+// displays always use the mobile app's names and prices.
 
 export function SubscriptionScreen({ params = {}, navigate, notify, onAuthComplete, onSessionUpdate }) {
   const registrationData = params.registrationData;

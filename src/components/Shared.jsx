@@ -137,7 +137,7 @@ export function Spinner({ label = '', size = 22 }) {
   return <span className="spinner-wrap"><LoaderCircle className="spin" size={size} aria-hidden="true" />{label && <span>{label}</span>}</span>;
 }
 
-export function ImageWithFallback({ src, fallback = '/assets/myNaai.jpeg', alt = '', className = '', ...props }) {
+export function ImageWithFallback({ src, fallback = '/assets/brand/naai-logo-dark.svg', alt = '', className = '', ...props }) {
   const [current, setCurrent] = useState(src ? getFileUrl(src) : fallback);
   useEffect(() => setCurrent(src ? getFileUrl(src) : fallback), [src, fallback]);
   return (

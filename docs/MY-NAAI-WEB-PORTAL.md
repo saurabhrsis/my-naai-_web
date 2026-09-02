@@ -70,7 +70,7 @@ Queue token numbers are not shown in the portal. The queue now focuses on the cu
 
 ## 5. Salon profile update contract
 
-The web editor sends the same complete body shape used by the mobile salon editor to `POST /api/salons/edit-salon-profile`. It includes profile/contact/address fields, numeric `latitude` and `longitude`, `imageUrl`, `imagesArray`, a detailed `businessHours` array, `isActive`, `profileCompleted`, and separate service/specialist collections:
+The web editor mirrors the mobile app's `EditSalonProfileScreen`: the same collapsible groups (**Owner Information**, **Salon Information**, **Address & Location**, **Salon Images**, **Business Hours**, **Salon Services**, **Barbers**) and the same field labels (Salon Owner Name, Mobile Number, Email Address, Salon Name, Salon Type, Agent Code, Complete Address, Landmark / Address Line 2, City, State, Pincode, Opening Time, Closing Time, Weekly Off, Service Name, Price, Duration, Description, Barber Name, Availability). Groups default to the mobile layout (Owner/Salon open, the rest collapsed, all open during onboarding), collapsed groups show a one-line summary, and a failed save re-opens the group that failed validation. Individual service and barber cards expand exactly like the mobile editor. The web editor sends the same complete body shape used by the mobile salon editor to `POST /api/salons/edit-salon-profile`. It includes profile/contact/address fields, numeric `latitude` and `longitude`, `imageUrl`, `imagesArray`, a detailed `businessHours` array, `isActive`, `profileCompleted`, and separate service/specialist collections:
 
 ```json
 {
@@ -99,6 +99,14 @@ The web editor sends the same complete body shape used by the mobile salon edito
 ```
 
 New services and specialists intentionally omit their IDs; existing records retain `serviceId`/`barberId`. The editor preserves the schedule ID and break times, and refuses to submit missing/invalid coordinates or malformed contact, service, barber and time values.
+
+### Live updates socket
+
+Both realtime screens (salon **Customer queue** and customer **My bookings**) share one socket.io connection managed by `src/lib/socket.js`. It mirrors the mobile app's global socket approach: it joins the `join_salon`/`join_user` room for the signed-in identity, re-joins rooms after every reconnect, listens for `queue_updated`/`booking_status_updated`, and starts with polling before upgrading to WebSocket so a blocked `wss` upgrade degrades to polling instead of failing (the earlier websocket-only connections produced "WebSocket is closed before the connection is established" during React StrictMode remounts and never recovered behind proxies without an upgrade path). Local development connects same-origin through the Vite `/socket.io` ws proxy; production uses `VITE_API_BASE_URL`. The connection is rebuilt on logout and session expiry.
+
+### Active plan display
+
+`src/lib/planDetails.js` keeps the plan catalog (same ids, titles, prices and durations as the mobile `SubscriptionsPlan`/`RenewalSubscriptionsPlan` screens) and normalizes the subscription fields returned by `get-salon` (root fields such as `planType`/`planExpiryDate` or nested `subscription`/`plan` objects). The salon account screen shows an active-plan card (plan title, price, start/expiry dates, days remaining, status, manage/renew action) and the profile editor shows a compact plan strip. When the backend response carries no plan fields, the account screen falls back to a "Plan details unavailable" card that deep-links to the subscription picker instead of guessing.
 
 ## 6. Salon subscriptions and onboarding
 
@@ -169,7 +177,12 @@ They must not be merged into one worker or registered with the same scope. The P
 | --- | --- |
 | `src/App.jsx` | Auth, session restoration, logout/expiry state, hash routes and push startup |
 | `src/lib/api.js` | Mobile-compatible REST client, bearer token and JWT cleanup |
+| `src/lib/socket.js` | Shared salon/user live-update socket (room joins, polling→WebSocket) |
+| `src/lib/planDetails.js` | Plan catalog and active-subscription normalization |
+| `src/lib/devtoolsShield.js` | Swallows the known Chrome DevTools Performance-panel crash |
 | `src/lib/push.js` | Firebase initialization, permission/token flow and notification route mapping |
+| `public/assets/brand/naai-mark.svg` | Official MyNaai mark (inherits `currentColor`) used by the in-app brand chip |
+| `public/assets/brand/naai-logo-dark.svg` | Official logo on the dark app tile; the default image fallback everywhere |
 | `public/firebase-messaging-sw.js` | Background push display and notification click routing |
 | `src/components/UserScreens.jsx` | Customer screens, bookings and delay response |
 | `src/components/SalonScreens.jsx` | Salon queue, booking request, delay action and partner screens |

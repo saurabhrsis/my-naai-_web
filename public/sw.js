@@ -1,10 +1,12 @@
-const CACHE_NAME = 'mynaai-shell-v1';
+const CACHE_NAME = 'mynaai-shell-v2';
 const APP_SHELL = [
   '/',
   '/index.html',
   '/manifest.webmanifest',
   '/icons/icon-192.png',
   '/icons/icon-512.png',
+  '/assets/brand/naai-mark.svg',
+  '/assets/brand/naai-logo-dark.svg',
   '/assets/my_naai_circle.png',
   '/assets/my_naai.png',
   '/assets/new_background.jpeg',
