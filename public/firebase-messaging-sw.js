@@ -73,6 +73,11 @@ if (firebaseConfig.apiKey && firebaseConfig.projectId && firebaseConfig.messagin
     const title = data.title || 'MyNaai update';
     const body = data.body || 'You have a new update from MyNaai.';
     const target = notificationRoute(data);
+    const type = String(data.type || data.notificationType || '').toUpperCase();
+    // Time-critical alerts vibrate like the mobile app's buzzer. The OS decides
+    // the audible notification sound (set on the server's push payload); a
+    // closed service worker cannot synthesize a custom tone.
+    const buzzer = type === 'BOOKING_REQUEST' || type === 'DELAY_BOOKING' || type === 'DELAY_TIME_PROPOSAL';
 
     // Returning the promise matters: the SDK awaits this handler inside the
     // push event's waitUntil(), so the worker stays alive long enough to show
@@ -83,7 +88,9 @@ if (firebaseConfig.apiKey && firebaseConfig.projectId && firebaseConfig.messagin
       badge: '/icons/icon-192.png',
       tag: data.bookingRequestId || data.type || 'mynaai-notification',
       data: { ...data, target },
-      requireInteraction: data.type === 'BOOKING_REQUEST',
+      requireInteraction: type === 'BOOKING_REQUEST',
+      // "Buzzer" vibration for booking alerts on supporting Android browsers.
+      vibrate: buzzer ? [260, 120, 260, 120, 520] : undefined,
     });
   });
 }

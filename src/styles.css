@@ -129,17 +129,21 @@ img { display: block; max-width: 100%; }
 .onboarding-copy { position: absolute; z-index: 1; left: 22px; right: 22px; bottom: max(27px, env(safe-area-inset-bottom)); }
 .onboarding-copy h1 { max-width: 590px; margin: 12px 0 12px; color: var(--white); font-size: clamp(30px, 8vw, 58px); line-height: 1.04; letter-spacing: -.04em; }
 .onboarding-copy p { max-width: 440px; margin: 0; color: #c6cbca; font-size: 14px; line-height: 1.55; }
-.onboarding-controls { display: flex; align-items: center; justify-content: space-between; margin-top: 28px; }
+.onboarding-controls { display: flex; align-items: center; justify-content: space-between; margin-top: 28px; gap: 14px; }
 .onboarding-dots { display: flex; gap: 7px; align-items: center; }
 .onboarding-dots button { width: 25px; height: 4px; border-radius: 10px; background: rgba(255,255,255,.32); padding: 0; transition: width .2s, background .2s; }
 .onboarding-dots button.active { width: 44px; background: var(--gold); }
 .next-circle { width: 55px; height: 55px; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: var(--gold); color: #0d0e0e; }
+/* "Let's Start" CTA on the final splash slide. */
+.lets-start-button { min-height: 55px; padding: 0 28px; border-radius: 30px; font-size: 15px; letter-spacing: .01em; box-shadow: 0 14px 40px rgba(0, 0, 0, .35); }
+/* The MyNaai logo is the monochrome black tile with a white mark (matching the
+   app icon / naai-logo-dark.svg). It is intentionally NOT gold. */
 .brand { display: inline-flex; align-items: center; gap: 9px; color: var(--white); font-weight: 700; font-size: 22px; letter-spacing: -.08em; }
-.brand > span > span { color: var(--gold); }
-.brand-symbol { width: 29px; height: 29px; display: flex; align-items: center; justify-content: center; border-radius: 9px; background: var(--gold); color: #101111; }
+.brand > span > span { color: #ffffff; }
+.brand-symbol { width: 29px; height: 29px; display: flex; align-items: center; justify-content: center; border-radius: 9px; background: #0a0a0a; color: #ffffff; border: 1px solid rgba(255, 255, 255, .18); }
 .brand-symbol svg { width: 19px; height: 19px; }
 .brand-light { color: white; }
-.brand-light .brand-symbol { background: var(--gold); }
+.brand-light .brand-symbol { background: #0a0a0a; color: #ffffff; border-color: rgba(255, 255, 255, .28); }
 .login-page { display: grid; grid-template-columns: 1fr; }
 .auth-visual { display: none; position: relative; overflow: hidden; }
 .auth-visual-image { position: absolute; inset: 0; background: url('/assets/new_background.jpeg') center / cover; filter: saturate(.8); }

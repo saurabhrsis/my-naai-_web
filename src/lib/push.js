@@ -151,13 +151,16 @@ export async function getPushToken({ requestPermission = false } = {}) {
 // keeps the notificationclick deep-link routing in one place.
 export async function displayNotification({ title, body, data = {} } = {}) {
   if (typeof window === 'undefined' || !('Notification' in window) || Notification.permission !== 'granted') return false;
+  const type = String(data.type || data.notificationType || '').toUpperCase();
   const options = {
     body: body || 'You have a new update from MyNaai.',
     icon: '/icons/icon-192.png',
     badge: '/icons/icon-192.png',
     tag: data.bookingRequestId || data.type || 'mynaai-notification',
     data: { ...data, target: notificationTarget(data) },
-    requireInteraction: data.type === 'BOOKING_REQUEST' || data.type === 'DELAY_TIME_PROPOSAL',
+    requireInteraction: type === 'BOOKING_REQUEST' || type === 'DELAY_TIME_PROPOSAL',
+    // Buzzer-style vibration for time-critical alerts (Android browsers).
+    vibrate: type === 'BOOKING_REQUEST' || type === 'DELAY_TIME_PROPOSAL' ? [260, 120, 260, 120, 520] : undefined,
   };
   try {
     const registration = await getPushServiceWorker();
