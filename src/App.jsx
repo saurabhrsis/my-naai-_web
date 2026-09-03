@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Bell,
   CalendarCheck2,
@@ -20,7 +20,7 @@ import {
   X,
 } from 'lucide-react';
 import { api, clearSession, getToken, setToken } from './lib/api';
-import { deletePushToken, getNotificationRoute, getPushToken, isPushConfigured, setupPush } from './lib/push';
+import { deletePushToken, displayNotification, getNotificationRoute, getPushStatus, getPushToken, isActionableNotification, normalizePushPayload, recordForegroundMessage, setupPush } from './lib/push';
 import { resetLiveUpdatesSocket } from './lib/socket';
 import { DEFAULT_SERVICES } from './lib/defaultServices';
 import { STATE_OPTIONS } from './lib/stateOptions';
@@ -43,8 +43,8 @@ import {
   SalonHistoryScreen,
   SalonProductsScreen,
   SalonQueueScreen,
-  SubscriptionScreen,
 } from './components/SalonScreens';
+import { SubscriptionScreen } from './components/SubscriptionScreen';
 import { SALON_ABOUT_CONTENT, SALON_FAQ_CONTENT, SALON_TERMS_CONTENT } from './lib/salonContent';
 import { Button, Field, SelectField, getBrowserLocation, getErrorMessage, cx } from './components/Shared';
 
@@ -134,56 +134,48 @@ function getRouteFromHash(role) {
   return { name: value, params: Object.fromEntries(new URLSearchParams(query).entries()) };
 }
 
-function NotificationSetupCard({ compact = false }) {
+// Booking buzzers, delay requests and appointment updates are a core MyNaai
+// feature and the backend expects a deviceToken, so this card explains exactly
+// why push is unavailable instead of staying silent while sign-in is blocked.
+function NotificationSetupCard({ compact = false, notifyInstall = null }) {
   const [status, setStatus] = useState('checking');
+  const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
 
   const inspect = useCallback(async (requestPermission = false) => {
-    if (typeof window === 'undefined' || !('Notification' in window)) {
-      setStatus('unsupported');
+    const result = await getPushStatus();
+    if (result.state === 'needs-permission' && requestPermission) {
+      const token = await getPushToken({ requestPermission: true });
+      setStatus(token ? 'enabled' : 'unavailable');
+      setReason(token ? '' : 'Firebase could not create a push token after permission was granted.');
       return;
     }
-    if (!isPushConfigured()) {
-      setStatus('unconfigured');
-      return;
-    }
-    if (Notification.permission === 'denied') {
-      setStatus('denied');
-      return;
-    }
-    try {
-      const token = await getPushToken({ requestPermission });
-      if (token && token.trim()) {
-        setStatus('enabled');
-        return;
-      }
-      setStatus(Notification.permission === 'default' ? 'needs-permission' : 'unavailable');
-    } catch (pushError) {
-      console.debug(getErrorMessage(pushError, 'Browser notification setup failed.'));
-      setStatus(Notification.permission === 'default' ? 'needs-permission' : 'unavailable');
-    }
+    setStatus(result.state);
+    setReason(result.reason || '');
   }, []);
 
-  useEffect(() => { inspect(false); }, [inspect]);
+  useEffect(() => { let active = true; getPushStatus().then(result => { if (active) { setStatus(result.state); setReason(result.reason || ''); } }); return () => { active = false; }; }, []);
 
   const enable = async () => {
     setBusy(true);
     try { await inspect(true); } finally { setBusy(false); }
   };
 
-  if (['checking', 'enabled', 'unconfigured'].includes(status)) return null;
+  if (['checking', 'enabled'].includes(status)) return null;
   const copy = {
-    unsupported: { title: 'Use a supported browser', body: 'This browser cannot receive MyNaai notifications. Switch to a supported browser to continue.' },
+    unconfigured: { title: 'Browser notifications are not configured', body: reason || 'This deployment is missing its Firebase web push keys (VITE_FIREBASE_* and VITE_FIREBASE_VAPID_KEY), so sign-in cannot issue a device token.' },
+    unsupported: { title: 'This browser cannot receive MyNaai notifications', body: reason || 'Switch to Chrome, Edge or Samsung Internet, or install MyNaai to your home screen on iPhone and iPad.' },
     denied: { title: 'Notifications are blocked', body: 'Open this site’s browser permissions, set Notifications to Allow, then try again.' },
     'needs-permission': { title: 'Notifications are required', body: 'Allow browser notifications to receive booking buzzers, delay requests and appointment updates.' },
-    unavailable: { title: 'Notification access needs a retry', body: 'We could not prepare browser notifications. Check the site permission and try again.' },
-  }[status];
-  const canRetry = status !== 'unsupported';
+    unavailable: { title: 'Notification access needs a retry', body: reason || 'We could not prepare browser notifications. Check the site permission and try again.' },
+  }[status] || { title: 'Notifications unavailable', body: reason };
+  const canRetry = !['unsupported'].includes(status);
   return (
     <section className={cx('push-setup-card', compact && 'push-setup-compact')} aria-live="polite">
       <span className="push-setup-icon"><Bell size={compact ? 15 : 18} /></span>
       <div className="push-setup-copy"><strong>{copy.title}</strong><p>{copy.body}</p></div>
-      {canRetry && <Button size="small" onClick={enable} loading={busy}>{status === 'denied' ? 'Try again' : 'Enable alerts'}</Button>}
+      {status === 'unsupported' && notifyInstall && <Button size="small" onClick={notifyInstall}><Download size={14} /> Install app</Button>}
+      {canRetry && <Button size="small" onClick={enable} loading={busy}>{status === 'denied' || status === 'unavailable' ? 'Try again' : 'Enable alerts'}</Button>}
     </section>
   );
 }
@@ -295,26 +287,6 @@ export default function App() {
     window.addEventListener('mynaai:plan-expired', onPlanExpired);
     return () => window.removeEventListener('mynaai:plan-expired', onPlanExpired);
   }, [session?.role]);
-  useEffect(() => {
-    if (!session) return undefined;
-    let cancelled = false;
-    let unsubscribe = () => {};
-    setupPush({
-      onMessage: payload => {
-        if (cancelled) return;
-        const next = getNotificationRoute(payload?.data || payload || {}, session.role);
-        setRoute(next);
-        window.history.pushState({}, '', `#/${next.name}${new URLSearchParams(next.params).toString() ? `?${new URLSearchParams(next.params).toString()}` : ''}`);
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-      },
-    }).then(result => {
-      if (cancelled) result?.unsubscribe?.();
-      else unsubscribe = result?.unsubscribe || (() => {});
-    }).catch(pushError => {
-      if (!cancelled) console.debug(getErrorMessage(pushError, 'Live browser notifications are unavailable.'));
-    });
-    return () => { cancelled = true; unsubscribe(); };
-  }, [session?.role, session?.userId]);
   const install = async () => {
     const promptEvent = installPrompt;
     if (!promptEvent) return;
@@ -509,6 +481,35 @@ function AppShell({ session, route, navigate, onLogout, onSessionUpdate, notifyI
   const showBottomNav = primaryRoutes.includes(route.name);
   const [toast, setToast] = useState(null);
   const notify = useCallback((type, message) => { setToast({ type, message }); window.clearTimeout(notify.timer); notify.timer = window.setTimeout(() => setToast(null), 4000); }, []);
+  const routeName = useRef(route.name);
+  useEffect(() => { routeName.current = route.name; }, [route.name]);
+  // Foreground web push: FCM hands these messages to the page instead of the OS,
+  // so MyNaai renders the notification itself, toasts it, and only auto-navigates
+  // for time-critical actions (a salon booking request, a delay proposal). An
+  // informational message must never yank a customer out of the booking flow.
+  useEffect(() => {
+    let cancelled = false;
+    let unsubscribe = () => {};
+    setupPush({
+      onMessage: payload => {
+        if (cancelled) return;
+        const message = normalizePushPayload(payload);
+        recordForegroundMessage(message);
+        displayNotification({ title: message.title, body: message.body, data: message.data });
+        notify('info', `${message.title}${message.body && message.body !== message.title ? ` — ${message.body}` : ''}`);
+        if (!isActionableNotification(message.type, session.role)) return;
+        const next = getNotificationRoute(message.data, session.role);
+        if (!next.name || next.name === routeName.current) return;
+        navigate(next.name, next.params);
+      },
+    }).then(result => {
+      if (cancelled) result?.unsubscribe?.();
+      else unsubscribe = result?.unsubscribe || (() => {});
+    }).catch(pushError => {
+      if (!cancelled) console.debug(getErrorMessage(pushError, 'Live browser notifications are unavailable.'));
+    });
+    return () => { cancelled = true; unsubscribe(); };
+  }, [navigate, notify, session.role, session.userId]);
   const render = () => {
     const props = { session, navigate, notify, onSessionUpdate };
     if (isSalon && session.isNewSalon && route.name !== 'editProfile') return <EditSalonProfileScreen {...props} params={{ ...(route.params || {}), isOnboarding: 'true' }} />;
@@ -538,7 +539,7 @@ function AppShell({ session, route, navigate, onLogout, onSessionUpdate, notifyI
     if (route.name === 'salonTerms') return <PartnerInfo type="terms" navigate={navigate} />;
     return <SalonQueueScreen {...props} />;
   };
-  return <div className={cx('app-shell', isSalon && 'salon-shell', !showBottomNav && 'utility-shell')}><Sidebar session={session} nav={nav} route={route} navigate={navigate} onLogout={onLogout} notifyInstall={notifyInstall} /><main className="workspace"><div className="mobile-shell-bar"><Brand /><button className="mobile-menu-button" aria-label="Open menu"><Menu size={20} /></button></div><div className={cx('workspace-content', utilityRoutes.includes(route.name) && 'utility-content')}>{route.name === 'account' && <NotificationSetupCard />}{render()}</div></main>{showBottomNav && <MobileNav nav={nav} route={route} navigate={navigate} />}{toast && <div className="toast-position"><div className={cx('toast', `toast-${toast.type || 'info'}`)} role="status"><span className="toast-mark">{toast.type === 'error' ? '!' : '✓'}</span><span>{toast.message}</span><button onClick={() => setToast(null)} aria-label="Dismiss"><X size={15} /></button></div></div>}</div>;
+  return <div className={cx('app-shell', isSalon && 'salon-shell', !showBottomNav && 'utility-shell')}><Sidebar session={session} nav={nav} route={route} navigate={navigate} onLogout={onLogout} notifyInstall={notifyInstall} /><main className="workspace"><div className="mobile-shell-bar"><Brand /><button className="mobile-menu-button" aria-label="Open menu"><Menu size={20} /></button></div><div className={cx('workspace-content', utilityRoutes.includes(route.name) && 'utility-content')}>{route.name === 'account' && <NotificationSetupCard notifyInstall={notifyInstall} />}{render()}</div></main>{showBottomNav && <MobileNav nav={nav} route={route} navigate={navigate} />}{toast && <div className="toast-position"><div className={cx('toast', `toast-${toast.type || 'info'}`)} role="status"><span className="toast-mark">{toast.type === 'error' ? '!' : '✓'}</span><span>{toast.message}</span><button onClick={() => setToast(null)} aria-label="Dismiss"><X size={15} /></button></div></div>}</div>;
 }
 
 function Sidebar({ session, nav, route, navigate, onLogout, notifyInstall }) {

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Bell,
   CalendarDays,
@@ -6,12 +6,15 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
+  CircleAlert,
   Clock3,
   Crown,
   Edit3,
   History,
   ImagePlus,
   MapPin,
+  Maximize2,
+  Minimize2,
   Package,
   Pencil,
   Phone,
@@ -27,17 +30,17 @@ import {
   X,
   Zap,
 } from 'lucide-react';
-import { api, getFileUrl, setToken } from '../lib/api';
+import { api, getFileUrl } from '../lib/api';
 import { DEFAULT_SERVICES } from '../lib/defaultServices';
-import { FREE_ONBOARDING_PLAN, normalizePlanDetails, PARTNER_PLANS, RENEWAL_PLANS } from '../lib/planDetails';
+import { normalizePlanDetails } from '../lib/planDetails';
 import { STATE_OPTIONS } from '../lib/stateOptions';
 import { SALON_ABOUT_CONTENT, SALON_FAQ_CONTENT, SALON_TERMS_CONTENT } from '../lib/salonContent';
+import { NotificationDiagnostics } from './NotificationDiagnostics';
 import { subscribeToLiveUpdates } from '../lib/socket';
 import {
   Button,
   EmptyState,
   Field,
-  GOLD,
   ImageWithFallback,
   Modal,
   PageHeader,
@@ -222,7 +225,7 @@ export function SalonAccountScreen({ session, navigate, notify, onSessionUpdate 
   if (loading) return <div className="screen salon-account-screen"><PageHeader title="Salon account" /><div className="account-loading"><Spinner label="Loading salon profile…" /></div></div>;
   const status = getSalonStatus(profile.businessHours, isOpen);
   const menus = [{ label: 'Edit salon profile', caption: 'Photos, hours, services and specialists', icon: Edit3, route: 'editProfile' }, { label: 'About MyNaai', caption: 'How MyNaai helps your business', icon: Store, route: 'salonAbout' }, { label: 'Frequently asked questions', caption: 'Partner help and booking basics', icon: Bell, route: 'salonFaq' }, { label: 'Terms & conditions', caption: 'Partner terms', icon: Receipt, route: 'salonTerms' }, { label: 'Subscription plans', caption: 'Upgrade or renew your plan', icon: WalletCards, route: 'subscription', params: { isUpgrade: true } }, { label: 'Need a hand?', caption: 'Call 8380017393', icon: Phone, action: () => window.open('tel:8380017393') }];
-  return <div className="screen salon-account-screen"><PageHeader title="Salon account" subtitle="Your business, in one place." action={<button className="refresh-text-button" onClick={load}><Zap size={15} /> Refresh</button>} /><section className="salon-profile-hero"><div className="salon-profile-photo"><ImageWithFallback src={profile.imageUrl || profile.imagesArray?.[0]} fallback="/assets/brand/naai-logo-dark.svg" alt={profile.salonName || 'Salon'} /></div><div className="salon-profile-copy"><span className="eyebrow">SALON PARTNER</span><h2>{profile.salonName || 'Your salon'}</h2><p><MapPin size={14} /> {profile.addressLine1 || profile.city || 'Add your salon address'}</p><span className={cx('account-status', status.isOpen ? 'open' : 'closed')}><i /> {status.isOpen ? 'Open for bookings' : 'Closed for bookings'}</span></div><Button size="small" variant="secondary" onClick={() => navigate('editProfile')}><Pencil size={15} /> Edit</Button></section><div className="salon-live-status"><div><span className="eyebrow">BOOKING STATUS</span><strong>{status.isOpen ? 'Customers can book you now' : 'Your salon is currently closed'}</strong><small>Toggle this when you are ready to take the next appointment.</small></div><Toggle checked={isOpen} onChange={toggleOpen} label={isOpen ? 'Open' : 'Closed'} /></div><div className="salon-profile-stats"><div><strong>{profile.services?.length || 0}</strong><span>Services</span></div><div><strong>{profile.barbers?.length || 0}</strong><span>Barbers</span></div><div><strong>{Number(profile.ratingAverage || 0).toFixed(1)}</strong><span>Rating</span></div></div>{planDetails ? <section className={cx('account-card', 'plan-card', !planDetails.isActive && 'plan-expired')}><div className="plan-card-top"><span className="plan-card-mark"><Crown size={18} /></span><div className="plan-card-title"><span className="eyebrow">{planDetails.isActive ? 'ACTIVE PLAN' : 'PLAN EXPIRED'}</span><strong>{planDetails.title}</strong><small>{planDetails.price !== null && planDetails.price > 0 ? `${formatCurrency(planDetails.price)}${planDetails.duration ? ` · ${planDetails.duration}` : ''}` : planDetails.duration || 'MyNaai partner plan'}</small></div><StatusPill tone={planDetails.isActive ? 'open' : 'closed'} dot>{planDetails.isActive ? 'Active' : 'Expired'}</StatusPill></div><div className="plan-card-meta">{planDetails.startDate && <div><CalendarDays size={14} /><span><small>Started</small><strong>{formatDate(planDetails.startDate)}</strong></span></div>}{planDetails.expiryDate && <div><Clock3 size={14} /><span><small>{planDetails.isActive ? 'Expires' : 'Expired on'}</small><strong>{formatDate(planDetails.expiryDate)}</strong></span></div>}{planDetails.daysLeft !== null && <div><Zap size={14} /><span><small>Remaining</small><strong>{planDetails.daysLeft > 0 ? `${planDetails.daysLeft} day${planDetails.daysLeft === 1 ? '' : 's'} left` : 'Renewal due'}</strong></span></div>}</div><Button size="small" variant={planDetails.isActive ? 'secondary' : 'primary'} onClick={() => navigate('subscription', { isUpgrade: true })}>{planDetails.isActive ? 'Manage plan' : 'Renew plan'}</Button></section> : <section className="account-card plan-card plan-unknown"><div className="plan-card-top"><span className="plan-card-mark"><Crown size={18} /></span><div className="plan-card-title"><span className="eyebrow">SUBSCRIPTION</span><strong>Plan details unavailable</strong><small>Keep your salon visible with an active plan.</small></div></div><Button size="small" onClick={() => navigate('subscription', { isUpgrade: true })}>View plans</Button></section>}<div className="account-card partner-menu">{menus.map(item => <button className="account-menu-row" key={item.label} onClick={item.action || (() => navigate(item.route, item.params || {}))}><span className="account-menu-icon"><item.icon size={18} /></span><span><strong>{item.label}</strong><small>{item.caption}</small></span><ChevronRight size={17} /></button>)}</div><p className="version-label">MyNaai partner portal · 1.0</p></div>;
+  return <div className="screen salon-account-screen"><PageHeader title="Salon account" subtitle="Your business, in one place." action={<button className="refresh-text-button" onClick={load}><Zap size={15} /> Refresh</button>} /><section className="salon-profile-hero"><div className="salon-profile-photo"><ImageWithFallback src={profile.imageUrl || profile.imagesArray?.[0]} fallback="/assets/brand/naai-logo-dark.svg" alt={profile.salonName || 'Salon'} /></div><div className="salon-profile-copy"><span className="eyebrow">SALON PARTNER</span><h2>{profile.salonName || 'Your salon'}</h2><p><MapPin size={14} /> {profile.addressLine1 || profile.city || 'Add your salon address'}</p><span className={cx('account-status', status.isOpen ? 'open' : 'closed')}><i /> {status.isOpen ? 'Open for bookings' : 'Closed for bookings'}</span></div><Button size="small" variant="secondary" onClick={() => navigate('editProfile')}><Pencil size={15} /> Edit</Button></section><div className="salon-live-status"><div><span className="eyebrow">BOOKING STATUS</span><strong>{status.isOpen ? 'Customers can book you now' : 'Your salon is currently closed'}</strong><small>Toggle this when you are ready to take the next appointment.</small></div><Toggle checked={isOpen} onChange={toggleOpen} label={isOpen ? 'Open' : 'Closed'} /></div><div className="salon-profile-stats"><div><strong>{profile.services?.length || 0}</strong><span>Services</span></div><div><strong>{profile.barbers?.length || 0}</strong><span>Barbers</span></div><div><strong>{Number(profile.ratingAverage || 0).toFixed(1)}</strong><span>Rating</span></div></div>{planDetails ? <section className={cx('account-card', 'plan-card', !planDetails.isActive && 'plan-expired')}><div className="plan-card-top"><span className="plan-card-mark"><Crown size={18} /></span><div className="plan-card-title"><span className="eyebrow">{planDetails.isActive ? 'ACTIVE PLAN' : 'PLAN EXPIRED'}</span><strong>{planDetails.title}</strong><small>{planDetails.price !== null && planDetails.price > 0 ? `${formatCurrency(planDetails.price)}${planDetails.duration ? ` · ${planDetails.duration}` : ''}` : planDetails.duration || 'MyNaai partner plan'}</small></div><StatusPill tone={planDetails.isActive ? 'open' : 'closed'} dot>{planDetails.isActive ? 'Active' : 'Expired'}</StatusPill></div><div className="plan-card-meta">{planDetails.startDate && <div><CalendarDays size={14} /><span><small>Started</small><strong>{formatDate(planDetails.startDate)}</strong></span></div>}{planDetails.expiryDate && <div><Clock3 size={14} /><span><small>{planDetails.isActive ? 'Expires' : 'Expired on'}</small><strong>{formatDate(planDetails.expiryDate)}</strong></span></div>}{planDetails.daysLeft !== null && <div><Zap size={14} /><span><small>Remaining</small><strong>{planDetails.daysLeft > 0 ? `${planDetails.daysLeft} day${planDetails.daysLeft === 1 ? '' : 's'} left` : 'Renewal due'}</strong></span></div>}</div><Button size="small" variant={planDetails.isActive ? 'secondary' : 'primary'} onClick={() => navigate('subscription', { isUpgrade: true })}>{planDetails.isActive ? 'Manage plan' : 'Renew plan'}</Button></section> : <section className="account-card plan-card plan-unknown"><div className="plan-card-top"><span className="plan-card-mark"><Crown size={18} /></span><div className="plan-card-title"><span className="eyebrow">SUBSCRIPTION</span><strong>Plan details unavailable</strong><small>Keep your salon visible with an active plan.</small></div></div><Button size="small" onClick={() => navigate('subscription', { isUpgrade: true })}>View plans</Button></section>}<div className="account-card partner-menu">{menus.map(item => <button className="account-menu-row" key={item.label} onClick={item.action || (() => navigate(item.route, item.params || {}))}><span className="account-menu-icon"><item.icon size={18} /></span><span><strong>{item.label}</strong><small>{item.caption}</small></span><ChevronRight size={17} /></button>)}</div><NotificationDiagnostics /><p className="version-label">MyNaai partner portal · 1.0</p></div>;
 }
 
 function getEditorBusinessHour(value = {}) {
@@ -242,21 +245,42 @@ function apiTime(value) {
   return `${String(value || '09:00').slice(0, 5)}:00`;
 }
 
+const EDITOR_SECTIONS = ['owner', 'salon', 'address', 'images', 'businessHours', 'services', 'barbers'];
+
+// Sub headings mirror the mobile editor's section captions so a collapsed card
+// still tells the partner what is inside it.
+const EDITOR_SECTION_SUBTITLES = {
+  owner: 'Name, phone number and email',
+  salon: 'Salon name, type and agent code',
+  address: 'Address and current GPS coordinates',
+  images: 'Photos customers see first',
+  businessHours: 'Opening, closing and weekly off',
+  services: 'Tap a service to edit its details',
+  barbers: 'Tap a barber to edit details',
+};
+
 // Collapsible editor section — mirrors the mobile app's EditSalonProfileScreen,
 // where every group (Owner Information, Salon Information, Address & Location,
 // Salon Images, Business Hours, Salon Services, Barbers) is a toggleable card.
-function CollapsibleSection({ id, icon, title, summary, count, open, onToggle, headingActions, children }) {
+// The sub heading (`subtitle`) is always rendered — the mobile screen keeps its
+// "Name, phone number and email" style caption visible in both states — while
+// the live `summary` line only appears when the group is collapsed.
+function CollapsibleSection({ id, icon, title, subtitle, summary, count, flag, flagTone = 'missing', open, onToggle, headingActions, children, innerRef }) {
   return (
-    <section className={cx('editor-section collapsible-section', open && 'open')} data-section={id}>
+    <section ref={innerRef} className={cx('editor-section collapsible-section', open && 'open', flag && flagTone === 'missing' && 'needs-attention')} data-section={id}>
       <div className="editor-section-heading collapsible-heading">
         <button type="button" className="collapsible-toggle" onClick={onToggle} aria-expanded={open} aria-controls={`editor-section-body-${id}`}>
           <span className="editor-section-icon">{icon}</span>
           <span className="collapsible-title">
-            <h2>{title}</h2>
-            {!open && summary && <p>{summary}</p>}
+            <span className="collapsible-title-row">
+              <h2>{title}</h2>
+              {count !== undefined && count !== null && <span className="collapsible-count">{count}</span>}
+              {flag && <span className={cx('collapsible-flag', `flag-${flagTone}`)}>{flag}</span>}
+            </span>
+            {subtitle && <span className="collapsible-subtitle">{subtitle}</span>}
+            {!open && summary && <span className="collapsible-summary">{summary}</span>}
           </span>
-          {count !== undefined && count !== null && <span className="collapsible-count">{count}</span>}
-          <ChevronDown size={17} className="collapsible-chevron" />
+          <ChevronDown size={18} className="collapsible-chevron" />
         </button>
         {headingActions && <div className="editor-heading-actions">{headingActions}</div>}
       </div>
@@ -266,17 +290,22 @@ function CollapsibleSection({ id, icon, title, summary, count, open, onToggle, h
 }
 
 // Collapsible service/barber card, matching the mobile app's expandable items.
-function CollapsibleEditorCard({ idPrefix, icon, image, title, subtitle, expanded, onToggle, onDelete, deleteLabel, children }) {
+function CollapsibleEditorCard({ idPrefix, icon, image, title, subtitle, flag, expanded, onToggle, onDelete, deleteLabel, children }) {
   return (
-    <div className={cx('editor-item collapsible-item', expanded && 'open')}>
+    <div className={cx('editor-item collapsible-item', expanded && 'open', flag && 'needs-attention')}>
       <div className="collapsible-item-heading">
         {image || <span className="editor-section-icon small">{icon}</span>}
         <button type="button" className="collapsible-item-toggle" onClick={onToggle} aria-expanded={expanded} aria-controls={`editor-item-body-${idPrefix}`}>
-          <strong>{title}</strong>
-          {!expanded && subtitle && <small>{subtitle}</small>}
+          <span className="collapsible-item-copy">
+            <strong>{title}</strong>
+            <span className="collapsible-item-meta">
+              {subtitle && <small>{subtitle}</small>}
+              {flag && <em className="collapsible-flag flag-missing">{flag}</em>}
+            </span>
+          </span>
           <ChevronDown size={16} className="collapsible-chevron" />
         </button>
-        <button type="button" className="item-delete-button" onClick={onDelete} aria-label={deleteLabel}><Trash2 size={15} /></button>
+        <button type="button" className="item-delete-button" onClick={onDelete} aria-label={deleteLabel}><Trash2 size={16} /></button>
       </div>
       <div id={`editor-item-body-${idPrefix}`} className={cx('collapsible-body-wrap', expanded && 'open')}><div className="collapsible-body">{children}</div></div>
     </div>
@@ -314,22 +343,48 @@ export function EditSalonProfileScreen({ params, session, navigate, notify, onSe
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(!routeProfile);
   const [locationLoading, setLocationLoading] = useState(false);
-  const [locationVerified, setLocationVerified] = useState(false);
+  // A salon that already has saved coordinates does not need a fresh GPS fix
+  // before it can be edited again; only a missing pin forces re-detection.
+  const [locationVerified, setLocationVerified] = useState(() => hasCoordinate(initial.latitude) && hasCoordinate(initial.longitude));
   const [locationError, setLocationError] = useState('');
-  // Collapsible groups default to the mobile app's layout: Owner Information
-  // and Salon Information open, the rest collapsed. During onboarding every
-  // group starts open so first-time partners see the whole setup.
-  const [openSections, setOpenSections] = useState(() => isOnboarding
-    ? { owner: true, salon: true, address: true, images: true, businessHours: true, services: true, barbers: true }
-    : { owner: true, salon: true, address: false, images: false, businessHours: false, services: false, barbers: false });
+  // Every group starts collapsed — on a phone the editor is a short list of
+  // seven cards a partner can scan, then open one at a time. The mobile app
+  // keeps Owner/Salon open; the portal collapses all of them and instead shows
+  // each card's sub heading, its live summary and how many required details are
+  // still missing, so nothing important is hidden.
+  const [openSections, setOpenSections] = useState(() => Object.fromEntries(EDITOR_SECTIONS.map(key => [key, false])));
   const [expandedItems, setExpandedItems] = useState({});
+  const sectionRefs = useRef({});
   const planDetails = useMemo(() => normalizePlanDetails(profile), [profile]);
+  // Captured once, from the *loaded* profile (a stored session can be as thin as
+  // `{ salon: { salonId } }`): a partner whose profile was incomplete when the
+  // editor opened is sent to the payment screen after saving, everybody else
+  // back to Account. `isOnboarding` covers a brand-new salon whose profile
+  // request can still fail.
+  const startedIncomplete = useRef(routeProfile ? salonProfileNeedsCompletion(routeProfile) : null);
   const toggleSection = key => setOpenSections(current => ({ ...current, [key]: !current[key] }));
   const toggleItem = key => setExpandedItems(current => ({ ...current, [key]: !current[key] }));
+  const allSectionsOpen = EDITOR_SECTIONS.every(key => openSections[key]);
+  const toggleAllSections = () => {
+    const next = !allSectionsOpen;
+    setOpenSections(Object.fromEntries(EDITOR_SECTIONS.map(key => [key, next])));
+  };
+  // A failed save opens the offending group and scrolls it into view, so the
+  // partner is not left guessing which collapsed card needs attention.
+  const focusSection = useCallback(key => {
+    if (!key) return;
+    setOpenSections(current => (current[key] ? current : { ...current, [key]: true }));
+    window.requestAnimationFrame(() => {
+      const node = sectionRefs.current[key];
+      node?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      node?.querySelector('input, textarea, select')?.focus({ preventScroll: true });
+    });
+  }, []);
 
   const populate = useCallback(data => {
     const next = data || {};
     const businessHour = getEditorBusinessHour(next.businessHours);
+    if (startedIncomplete.current === null) startedIncomplete.current = salonProfileNeedsCompletion(next);
     setProfile(next);
     setSalonName(textValue(next.salonName));
     setOwnerName(textValue(next.ownerName));
@@ -344,6 +399,7 @@ export function EditSalonProfileScreen({ params, session, navigate, notify, onSe
     setAgentCode(textValue(next.agentCode));
     setLatitude(hasCoordinate(next.latitude) ? Number(next.latitude) : null);
     setLongitude(hasCoordinate(next.longitude) ? Number(next.longitude) : null);
+    setLocationVerified(hasCoordinate(next.latitude) && hasCoordinate(next.longitude));
     setOpenTime(editorTime(businessHour.openingTime, '09:00'));
     setCloseTime(editorTime(businessHour.closingTime, '22:00'));
     const nextHoliday = businessHour.holidayDays?.[0];
@@ -396,9 +452,16 @@ export function EditSalonProfileScreen({ params, session, navigate, notify, onSe
     }
   }, []);
 
+  // Ask for the browser location once, and only when the salon has no saved pin
+  // yet — an existing partner editing their menu from home must not have the
+  // salon coordinates silently replaced by wherever they are standing.
+  const autoDetectedLocation = useRef(false);
   useEffect(() => {
-    if (!loading) detectLocation();
-  }, [detectLocation, loading]);
+    if (loading || autoDetectedLocation.current) return;
+    autoDetectedLocation.current = true;
+    if (hasCoordinate(latitude) && hasCoordinate(longitude)) return;
+    detectLocation();
+  }, [detectLocation, latitude, loading, longitude]);
 
   const validateImageFile = file => {
     if (!file) return false;
@@ -510,29 +573,73 @@ export function EditSalonProfileScreen({ params, session, navigate, notify, onSe
     return normalizeRemoteImagePath(path);
   };
 
+  const phoneDigits = phoneNumber.replace(/\D/g, '');
+  const emailValid = !email.trim() || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+  const agentCodeValid = !agentCode.trim() || /^\d{10}$/.test(agentCode.trim());
+  const pincodeValid = !pincode.trim() || /^\d{6}$/.test(pincode.trim());
+  const locationReady = locationVerified && hasCoordinate(latitude) && hasCoordinate(longitude)
+    && Number(latitude) >= -90 && Number(latitude) <= 90 && Number(longitude) >= -180 && Number(longitude) <= 180;
+  const serviceIncomplete = item => !item.name.trim() || item.price === '' || !Number.isFinite(Number(item.price)) || Number(item.price) < 0
+    || !item.duration || !Number.isFinite(Number(item.duration)) || Number(item.duration) <= 0;
+  const barberIncomplete = item => !item.name.trim();
+
+  // Required-field state for every collapsible group. The same object drives the
+  // collapsed "Missing: …" line, the section flag chip and the save-time
+  // validation, so a partner always sees exactly what still has to be filled in
+  // while all sections stay collapsed by default.
+  const sectionIssues = {
+    owner: [!ownerName.trim() && 'Salon Owner Name', phoneDigits.length !== 10 && 'Mobile Number', !emailValid && 'a valid Email Address'].filter(Boolean),
+    salon: [!salonName.trim() && 'Salon Name', !genderType && 'Salon Type', !agentCodeValid && 'a valid Agent Code'].filter(Boolean),
+    address: [!addressLine1.trim() && 'Complete Address', !pincodeValid && 'a valid Pincode', !locationReady && 'salon GPS location'].filter(Boolean),
+    images: [],
+    businessHours: [!openTime && 'Opening Time', !closeTime && 'Closing Time', openTime && openTime === closeTime && 'different Opening and Closing Time'].filter(Boolean),
+    services: [!services.length && 'at least one service', services.length > 0 && services.some(serviceIncomplete) && 'Service Name, Price and Duration for every service'].filter(Boolean),
+    barbers: [barbers.some(barberIncomplete) && 'Barber Name for every team member'].filter(Boolean),
+  };
+  const missingCount = EDITOR_SECTIONS.reduce((total, key) => total + sectionIssues[key].length, 0);
+  const sectionFlag = key => (sectionIssues[key]?.length ? `${sectionIssues[key].length} required` : '');
+  const sectionSummary = (key, text) => (
+    <>
+      {text && <span className="summary-value">{text}</span>}
+      {sectionIssues[key]?.length > 0 && <span className="collapsible-missing">Missing: {sectionIssues[key].join(', ')}</span>}
+    </>
+  );
+  // A new or incomplete profile continues to the payment screen after saving;
+  // an already-complete profile (or a partner with a live plan) goes to Account.
+  // Skipping the payment step for an active plan prevents charging twice for the
+  // same profile save.
+  const needsPaymentStep = (isOnboarding || startedIncomplete.current === true) && !planDetails?.isActive;
+
   const validate = () => {
     if (!salonId) return { message: 'Salon ID is unavailable. Please sign in again.', section: '' };
-    if (!ownerName.trim()) return { message: 'Please enter the Salon Owner Name.', section: 'owner' };
-    if (!salonName.trim()) return { message: 'Please enter the Salon Name.', section: 'salon' };
-    if (phoneNumber.replace(/\D/g, '').length !== 10) return { message: 'Please enter a valid 10-digit Mobile Number.', section: 'owner' };
-    if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) return { message: 'Please enter a valid Email Address.', section: 'owner' };
-    if (!genderType) return { message: 'Please select the Salon Type.', section: 'salon' };
-    if (agentCode.trim() && !/^\d{10}$/.test(agentCode.trim())) return { message: 'Agent Code must be exactly 10 digits or blank.', section: 'salon' };
-    if (!addressLine1.trim()) return { message: 'Please enter the Complete Address.', section: 'address' };
-    if (pincode.trim() && !/^\d{6}$/.test(pincode.trim())) return { message: 'Pincode must contain 6 digits.', section: 'address' };
-    if (!locationVerified || !hasCoordinate(latitude) || !hasCoordinate(longitude) || Number(latitude) < -90 || Number(latitude) > 90 || Number(longitude) < -180 || Number(longitude) > 180) return { message: 'Allow location access and detect the salon location before continuing.', section: 'address' };
-    if (openTime === closeTime) return { message: 'Opening Time and Closing Time cannot be the same.', section: 'businessHours' };
-    if (!services.length) return { message: 'Please add at least one salon service.', section: 'services' };
-    if (services.some(item => !item.name.trim() || item.price === '' || !Number.isFinite(Number(item.price)) || Number(item.price) < 0 || !item.duration || !Number.isFinite(Number(item.duration)) || Number(item.duration) <= 0)) return { message: 'Enter a valid Service Name, Price and Duration for every service.', section: 'services' };
-    if (barbers.some(item => !item.name.trim())) return { message: 'Please enter the Barber Name of every team member.', section: 'barbers' };
-    return null;
+    const checks = [
+      ['owner', !ownerName.trim(), 'Please enter the Salon Owner Name.'],
+      ['owner', phoneDigits.length !== 10, 'Please enter a valid 10-digit Mobile Number.'],
+      ['owner', !emailValid, 'Please enter a valid Email Address.'],
+      ['salon', !salonName.trim(), 'Please enter the Salon Name.'],
+      ['salon', !genderType, 'Please select the Salon Type.'],
+      ['salon', !agentCodeValid, 'Agent Code must be exactly 10 digits or blank.'],
+      ['address', !addressLine1.trim(), 'Please enter the Complete Address.'],
+      ['address', !pincodeValid, 'Pincode must contain 6 digits.'],
+      ['address', !locationReady, 'Allow location access and detect the salon location before continuing.'],
+      ['businessHours', !openTime || !closeTime, 'Please set the Opening Time and Closing Time.'],
+      ['businessHours', Boolean(openTime) && openTime === closeTime, 'Opening Time and Closing Time cannot be the same.'],
+      ['services', !services.length, 'Please add at least one salon service.'],
+      ['services', services.length > 0 && services.some(serviceIncomplete), 'Enter a valid Service Name, Price and Duration for every service.'],
+      ['barbers', barbers.some(barberIncomplete), 'Please enter the Barber Name of every team member.'],
+    ];
+    const failure = checks.find(([, failed]) => failed);
+    return failure ? { message: failure[2], section: failure[0] } : null;
   };
 
   const save = async event => {
     event.preventDefault();
     const validationError = validate();
     if (validationError) {
-      if (validationError.section) setOpenSections(current => ({ ...current, [validationError.section]: true }));
+      // Open the group that failed, scroll it into view and focus its first
+      // input — with every section collapsed by default the partner must never
+      // have to hunt for the field that blocked the save.
+      focusSection(validationError.section);
       return notify?.('error', validationError.message);
     }
     setSaving(true);
@@ -608,20 +715,29 @@ export function EditSalonProfileScreen({ params, session, navigate, notify, onSe
       const next = { ...profile, ...payload, services: [...existingServices, ...newServices], barbers: [...existingBarbers, ...newBarbers] };
       setProfile(next);
       localStorage.setItem('profileCompleted', 'true');
-      if (isOnboarding) localStorage.setItem('isNewSalon', 'false');
-      onSessionUpdate?.(next, isOnboarding ? { isNewSalon: false } : undefined);
-      notify?.('success', 'Salon profile saved.');
-      if (isOnboarding) navigate('subscription', { isUpgrade: true, isOnboarding: true }, { replace: true }); else navigate(-1);
+      localStorage.setItem('isNewSalon', 'false');
+      // The saved profile is complete, so release the editor lock for both a
+      // first-time partner and an existing salon fixing an incomplete profile.
+      onSessionUpdate?.(next, { isNewSalon: false });
+      if (needsPaymentStep) {
+        notify?.('success', 'Salon profile saved. Choose a plan to continue.');
+        navigate('subscription', isOnboarding ? { isUpgrade: true, isOnboarding: true } : { isUpgrade: true }, { replace: true });
+      } else {
+        notify?.('success', 'Salon profile saved.');
+        navigate('account', {}, { replace: true });
+      }
     } catch (error) {
       notify?.('error', getErrorMessage(error, 'Could not save salon profile.'));
     } finally { setSaving(false); }
   };
 
   if (loading) return <div className="screen"><PageHeader title="Edit salon profile" /><div className="account-loading"><Spinner label="Loading profile…" /></div></div>;
-  const hasLocation = locationVerified && hasCoordinate(latitude) && hasCoordinate(longitude);
-  const locationMessage = locationLoading ? 'Detecting current location…' : locationError || 'Allow location access so nearby customers can discover this salon.';
-  const ownerSummary = `${ownerName.trim() || 'Name pending'} · ${phoneNumber ? `+91 ${phoneNumber}` : 'Mobile Number pending'}`;
-  const salonSummary = `${salonName.trim() || 'Name pending'} · ${genderType || 'Salon Type pending'}`;
+  const hasLocation = locationReady;
+  const locationMessage = locationLoading
+    ? 'Detecting current location…'
+    : locationError || 'Required — allow location access so nearby customers can discover this salon.';
+  const ownerSummary = `${ownerName.trim() || 'Name pending'} · ${phoneDigits ? `+91 ${phoneDigits}` : 'Mobile Number pending'}`;
+  const salonSummary = `${salonName.trim() || 'Name pending'} · ${genderType ? genderType.charAt(0) + genderType.slice(1).toLowerCase() : 'Salon Type pending'}`;
   const addressSummary = `${addressLine1.trim() || 'Address pending'}${city.trim() ? `, ${city.trim()}` : ''}`;
   const hoursSummary = `${formatTime(openTime)} – ${formatTime(closeTime)}${holiday !== '' ? ' · Weekly off set' : ''}`;
   const planExpiryLine = planDetails?.expiryDate
@@ -629,192 +745,73 @@ export function EditSalonProfileScreen({ params, session, navigate, notify, onSe
       ? `Expires ${formatDate(planDetails.expiryDate)}${planDetails.daysLeft !== null && planDetails.daysLeft >= 0 ? ` · ${planDetails.daysLeft} day${planDetails.daysLeft === 1 ? '' : 's'} left` : ''}`
       : `Expired on ${formatDate(planDetails.expiryDate)}`
     : 'Active subscription';
-  return <div className="screen edit-salon-screen"><PageHeader title={isOnboarding ? 'Complete salon profile' : 'Edit salon profile'} subtitle={isOnboarding ? 'Add the details customers need before you open your dashboard.' : 'Give customers a clear picture of your business.'} onBack={isOnboarding ? undefined : () => navigate(-1)} action={<button className="refresh-text-button" type="button" onClick={refreshProfile} disabled={loading}><RefreshCw size={15} /> Refresh</button>} />
-    {planDetails && <div className={cx('editor-plan-strip', planDetails.isActive ? 'active' : 'expired')}><span className="editor-plan-mark"><Crown size={14} /></span><span className="editor-plan-copy"><strong>{planDetails.title}</strong><small>{planDetails.price !== null && planDetails.price > 0 ? `${formatCurrency(planDetails.price)} · ${planExpiryLine}` : planExpiryLine}</small></span>{!isOnboarding && <button type="button" onClick={() => navigate('subscription', { isUpgrade: true })}>Manage plan</button>}</div>}
-    <form className="profile-editor" onSubmit={save}>
-    <CollapsibleSection id="owner" icon={<UserRound size={17} />} title="Owner Information" summary={ownerSummary} open={openSections.owner} onToggle={() => toggleSection('owner')}>
-      <div className="form-two-col"><Field label="Salon Owner Name"><input value={ownerName} onChange={event => setOwnerName(event.target.value)} placeholder="Enter salon owner name" /></Field><Field label="Mobile Number" hint={profile.phoneNumber ? 'The login number is managed by OTP authentication.' : '10 digits required'}><input inputMode="numeric" value={phoneNumber} onChange={event => setPhoneNumber(event.target.value.replace(/\D/g, '').slice(0, 10))} readOnly={Boolean(profile.phoneNumber)} placeholder="Enter mobile number" /></Field></div>
-      <Field label="Email Address" hint="Optional"><input type="email" value={email} onChange={event => setEmail(event.target.value)} placeholder="Enter email address" /></Field>
+  const goBackToAccount = () => navigate('account', {}, { replace: true });
+  return <div className="screen edit-salon-screen"><PageHeader title={isOnboarding ? 'Complete salon profile' : 'Edit salon profile'} subtitle={isOnboarding ? 'Add the details customers need before you open your dashboard.' : 'Give customers a clear picture of your business.'} onBack={isOnboarding ? undefined : goBackToAccount} action={<button className="refresh-text-button" type="button" onClick={refreshProfile} disabled={loading}><RefreshCw size={15} /> Refresh</button>} />
+    {planDetails && <div className={cx('editor-plan-strip', planDetails.isActive ? 'active' : 'expired')}><span className="editor-plan-mark"><Crown size={15} /></span><span className="editor-plan-copy"><strong>{planDetails.title}</strong><small>{planDetails.price !== null && planDetails.price > 0 ? `${formatCurrency(planDetails.price)} · ${planExpiryLine}` : planExpiryLine}</small></span>{!isOnboarding && <button type="button" onClick={() => navigate('subscription', { isUpgrade: true })}>Manage plan</button>}</div>}
+    <div className={cx('editor-status-bar', missingCount ? 'missing' : 'ready')}>
+      <span className="editor-status-mark">{missingCount ? <CircleAlert size={16} /> : <CheckCircle2 size={16} />}</span>
+      <span className="editor-status-copy">
+        <strong>{missingCount ? `${missingCount} required detail${missingCount === 1 ? '' : 's'} still missing` : 'All required details are filled in'}</strong>
+        <small>{missingCount ? 'Open the cards marked in red to finish the profile.' : needsPaymentStep ? 'Save to continue to the payment screen.' : 'Save to publish the latest changes.'}</small>
+      </span>
+      <button type="button" className="expand-all-button" onClick={toggleAllSections}>{allSectionsOpen ? <><Minimize2 size={14} /> Collapse all</> : <><Maximize2 size={14} /> Expand all</>}</button>
+    </div>
+    <form className="profile-editor" onSubmit={save} noValidate>
+    <p className="required-legend"><em className="required-star" aria-hidden="true">*</em> Required fields · every section stays closed until you tap it.</p>
+    <CollapsibleSection id="owner" innerRef={node => { sectionRefs.current.owner = node; }} icon={<UserRound size={18} />} title="Owner Information" subtitle={EDITOR_SECTION_SUBTITLES.owner} flag={sectionFlag('owner')} summary={sectionSummary('owner', ownerSummary)} open={openSections.owner} onToggle={() => toggleSection('owner')}>
+      <div className="form-two-col"><Field label="Salon Owner Name" required><input value={ownerName} onChange={event => setOwnerName(event.target.value)} placeholder="Enter salon owner name" aria-required="true" autoComplete="name" /></Field><Field label="Mobile Number" required hint={profile.phoneNumber ? 'The login number is managed by OTP authentication.' : '10 digits required'}><input inputMode="numeric" value={phoneNumber} onChange={event => setPhoneNumber(event.target.value.replace(/\D/g, '').slice(0, 10))} readOnly={Boolean(profile.phoneNumber)} placeholder="Enter mobile number" aria-required="true" autoComplete="tel" /></Field></div>
+      <Field label="Email Address" hint="Optional"><input type="email" value={email} onChange={event => setEmail(event.target.value)} placeholder="Enter email address" autoComplete="email" /></Field>
     </CollapsibleSection>
-    <CollapsibleSection id="salon" icon={<Store size={17} />} title="Salon Information" summary={salonSummary} open={openSections.salon} onToggle={() => toggleSection('salon')}>
-      <Field label="Salon Name"><input value={salonName} onChange={event => setSalonName(event.target.value)} placeholder="Enter salon name" /></Field>
-      <SelectField label="Salon Type" value={genderType} onChange={changeGenderType} options={[{ value: 'MALE', label: 'Male' }, { value: 'FEMALE', label: 'Female' }, { value: 'UNISEX', label: 'Unisex' }]} placeholder="Select salon type" />
+    <CollapsibleSection id="salon" innerRef={node => { sectionRefs.current.salon = node; }} icon={<Store size={18} />} title="Salon Information" subtitle={EDITOR_SECTION_SUBTITLES.salon} flag={sectionFlag('salon')} summary={sectionSummary('salon', salonSummary)} open={openSections.salon} onToggle={() => toggleSection('salon')}>
+      <Field label="Salon Name" required><input value={salonName} onChange={event => setSalonName(event.target.value)} placeholder="Enter salon name" aria-required="true" /></Field>
+      <SelectField label="Salon Type" required value={genderType} onChange={changeGenderType} options={[{ value: 'MALE', label: 'Male' }, { value: 'FEMALE', label: 'Female' }, { value: 'UNISEX', label: 'Unisex' }]} placeholder="Select salon type" />
       <Field label="Agent Code" hint="Optional · exactly 10 digits"><input inputMode="numeric" maxLength="10" value={agentCode} onChange={event => setAgentCode(event.target.value.replace(/\D/g, '').slice(0, 10))} placeholder="Optional 10-digit agent code" /></Field>
       <div className="switch-form-row"><span><strong>Accept new bookings</strong><small>Keep the salon active in customer discovery.</small></span><Toggle checked={isActive} onChange={setIsActive} /></div>
     </CollapsibleSection>
-    <CollapsibleSection id="address" icon={<MapPin size={17} />} title="Address & Location" summary={addressSummary} open={openSections.address} onToggle={() => toggleSection('address')}>
-      <Field label="Complete Address"><textarea value={addressLine1} onChange={event => setAddressLine1(event.target.value)} placeholder="House number, street, area, building" rows="3" /></Field>
+    <CollapsibleSection id="address" innerRef={node => { sectionRefs.current.address = node; }} icon={<MapPin size={18} />} title="Address & Location" subtitle={EDITOR_SECTION_SUBTITLES.address} flag={sectionFlag('address')} summary={sectionSummary('address', addressSummary)} open={openSections.address} onToggle={() => toggleSection('address')}>
+      <Field label="Complete Address" required><textarea value={addressLine1} onChange={event => setAddressLine1(event.target.value)} placeholder="House number, street, area, building" rows="3" aria-required="true" /></Field>
       <Field label="Landmark / Address Line 2" hint="Optional"><input value={addressLine2} onChange={event => setAddressLine2(event.target.value)} placeholder="Nearby landmark" /></Field>
-      <div className="form-three-col editor-address-grid"><Field label="City"><input value={city} onChange={event => setCity(event.target.value)} placeholder="City" /></Field><SelectField label="State" value={state} onChange={event => setState(event.target.value)} options={STATE_OPTIONS} placeholder="Select state" /><Field label="Pincode"><input inputMode="numeric" maxLength="6" value={pincode} onChange={event => setPincode(event.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="Pincode" /></Field></div>
-      <div className={cx('editor-location-status', hasLocation ? 'location-ready' : 'location-missing')}><MapPin size={17} /><span><strong>{hasLocation ? 'Location saved' : 'Location required'}</strong><small>{hasLocation ? `${Number(latitude).toFixed(6)}, ${Number(longitude).toFixed(6)}` : locationMessage}</small></span></div>
-      <Button type="button" size="small" variant="secondary" onClick={detectLocation} loading={locationLoading}><MapPin size={15} /> Detect current location</Button>
+      <div className="form-three-col editor-address-grid"><Field label="City" hint="Optional"><input value={city} onChange={event => setCity(event.target.value)} placeholder="City" /></Field><SelectField label="State" hint="Optional" value={state} onChange={event => setState(event.target.value)} options={STATE_OPTIONS} placeholder="Select state" /><Field label="Pincode" hint="Optional · 6 digits"><input inputMode="numeric" maxLength="6" value={pincode} onChange={event => setPincode(event.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="Pincode" /></Field></div>
+      <div className={cx('editor-location-status', hasLocation ? 'location-ready' : 'location-missing')}><MapPin size={18} /><span><strong>{hasLocation ? 'Salon location saved' : 'Salon location required *'}</strong><small>{hasLocation ? `${Number(latitude).toFixed(6)}, ${Number(longitude).toFixed(6)}` : locationMessage}</small></span></div>
+      <Button type="button" size="small" variant="secondary" onClick={detectLocation} loading={locationLoading}><MapPin size={15} /> {hasLocation ? 'Update to current location' : 'Detect current location'}</Button>
     </CollapsibleSection>
-    <CollapsibleSection id="images" icon={<ImagePlus size={17} />} title="Salon Images" summary={`${images.length} of ${MAX_IMAGES} photos added`} open={openSections.images} onToggle={() => toggleSection('images')}>
-      <p className="collapsible-lede">Up to {MAX_IMAGES} photos · the first becomes your main image.</p>
+    <CollapsibleSection id="images" innerRef={node => { sectionRefs.current.images = node; }} icon={<ImagePlus size={18} />} title="Salon Images" subtitle={EDITOR_SECTION_SUBTITLES.images} summary={sectionSummary('images', `${images.length} of ${MAX_IMAGES} photos added`)} open={openSections.images} onToggle={() => toggleSection('images')}>
+      <p className="collapsible-lede">Optional · up to {MAX_IMAGES} photos, each smaller than {MAX_IMAGE_MB} MB. The first photo becomes your main image.</p>
       <div className="editor-photo-grid">{images.map((image, index) => <div className="editor-photo" key={`${typeof image === 'string' ? image : image.preview}-${index}`}><ImageWithFallback src={typeof image === 'string' ? image : image.preview} fallback="/assets/brand/naai-logo-dark.svg" alt="Salon photo" /><label className="editor-photo-change" aria-label={`Replace salon photo ${index + 1}`}><Pencil size={13} /><input type="file" accept="image/*" onChange={event => replaceImage(index, event)} /></label><button type="button" onClick={() => removeImage(index)} aria-label={`Remove salon photo ${index + 1}`}><X size={15} /></button></div>)}{images.length < MAX_IMAGES && <label className="add-photo"><Plus size={20} /><span>Add photo</span><input type="file" accept="image/*" multiple onChange={addImages} /></label>}</div>
     </CollapsibleSection>
-    <CollapsibleSection id="businessHours" icon={<Clock3 size={17} />} title="Business Hours" summary={hoursSummary} open={openSections.businessHours} onToggle={() => toggleSection('businessHours')}>
-      <div className="form-two-col"><Field label="Opening Time"><input type="time" value={openTime} onChange={event => setOpenTime(event.target.value)} /></Field><Field label="Closing Time"><input type="time" value={closeTime} onChange={event => setCloseTime(event.target.value)} /></Field></div>
-      <SelectField label="Weekly Off" value={holiday} onChange={event => setHoliday(event.target.value)} placeholder="No weekly off" options={['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].map((day, index) => ({ value: String(index), label: day }))} />
+    <CollapsibleSection id="businessHours" innerRef={node => { sectionRefs.current.businessHours = node; }} icon={<Clock3 size={18} />} title="Business Hours" subtitle={EDITOR_SECTION_SUBTITLES.businessHours} flag={sectionFlag('businessHours')} summary={sectionSummary('businessHours', hoursSummary)} open={openSections.businessHours} onToggle={() => toggleSection('businessHours')}>
+      <div className="form-two-col"><Field label="Opening Time" required><input type="time" value={openTime} onChange={event => setOpenTime(event.target.value)} aria-required="true" /></Field><Field label="Closing Time" required><input type="time" value={closeTime} onChange={event => setCloseTime(event.target.value)} aria-required="true" /></Field></div>
+      <SelectField label="Weekly Off" hint="Optional" value={holiday} onChange={event => setHoliday(event.target.value)} placeholder="No weekly off" options={['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].map((day, index) => ({ value: String(index), label: day }))} />
     </CollapsibleSection>
-    <CollapsibleSection id="services" icon={<Scissors size={17} />} title="Salon Services" count={services.length} open={openSections.services} onToggle={() => toggleSection('services')} headingActions={<>
-      <button type="button" className="add-inline-button" onClick={loadDefaultServices}><RefreshCw size={14} /> Load Default {genderType || ''} Services</button>
+    <CollapsibleSection id="services" innerRef={node => { sectionRefs.current.services = node; }} icon={<Scissors size={18} />} title="Salon Services" subtitle={EDITOR_SECTION_SUBTITLES.services} count={services.length} flag={sectionFlag('services')} summary={sectionSummary('services', services.length ? `${services.length} service${services.length === 1 ? '' : 's'} on your menu` : 'No services added yet')} open={openSections.services} onToggle={() => toggleSection('services')} headingActions={<>
+      <button type="button" className="add-inline-button" onClick={loadDefaultServices}><RefreshCw size={14} /> Load Default {genderType ? genderType.charAt(0) + genderType.slice(1).toLowerCase() : ''} Services</button>
       <button type="button" className="add-inline-button" onClick={addService}><Plus size={15} /> Add Service</button>
     </>}>
-      <p className="collapsible-lede">Every service needs a Service Name, Price and Duration.</p>
+      <p className="collapsible-lede">Every service needs a Service Name <em className="required-star">*</em>, Price <em className="required-star">*</em> and Duration <em className="required-star">*</em>.</p>
       <div className="editor-items">{services.map(item => {
         const itemKey = `service-${item.id}`;
-        return <CollapsibleEditorCard idPrefix={itemKey} icon={<Scissors size={15} />} title={item.name || 'New Service'} subtitle={[item.price !== '' ? formatCurrency(item.price) : 'Price pending', `${item.duration || 0} min`].filter(Boolean).join(' · ')} expanded={Boolean(expandedItems[itemKey])} onToggle={() => toggleItem(itemKey)} onDelete={() => removeService(item.id)} deleteLabel={`Delete ${item.name || 'service'}`} key={item.id}>
-          <div className="form-three-col"><Field label="Service Name"><input value={item.name} onChange={event => updateService(item.id, 'name', event.target.value)} placeholder="Service name" /></Field><Field label="Price"><input type="number" min="0" value={item.price} onChange={event => updateService(item.id, 'price', event.target.value)} placeholder="₹ Price" /></Field><Field label="Duration"><input type="number" min="5" value={item.duration} onChange={event => updateService(item.id, 'duration', event.target.value)} placeholder="Minutes" /></Field></div>
+        const incomplete = serviceIncomplete(item);
+        return <CollapsibleEditorCard idPrefix={itemKey} icon={<Scissors size={16} />} title={item.name || 'New Service'} flag={incomplete ? 'Needs details' : ''} subtitle={[item.price !== '' ? formatCurrency(item.price) : 'Price pending', `${item.duration || 0} min`].filter(Boolean).join(' · ')} expanded={Boolean(expandedItems[itemKey])} onToggle={() => toggleItem(itemKey)} onDelete={() => removeService(item.id)} deleteLabel={`Delete ${item.name || 'service'}`} key={item.id}>
+          <div className="form-three-col"><Field label="Service Name" required><input value={item.name} onChange={event => updateService(item.id, 'name', event.target.value)} placeholder="Service name" /></Field><Field label="Price" required><input type="number" min="0" value={item.price} onChange={event => updateService(item.id, 'price', event.target.value)} placeholder="₹ Price" /></Field><Field label="Duration" required hint="Minutes"><input type="number" min="5" value={item.duration} onChange={event => updateService(item.id, 'duration', event.target.value)} placeholder="Minutes" /></Field></div>
           <Field label="Description" hint="Optional"><textarea className="editor-description" value={item.description} onChange={event => updateService(item.id, 'description', event.target.value)} placeholder="Optional description" rows="2" /></Field>
         </CollapsibleEditorCard>;
       })}</div>
-      {!services.length && <div className="editor-empty">No services added yet. Load defaults or add one manually.</div>}
+      {!services.length && <div className="editor-empty">No services added yet. Load the defaults for your salon type or add one manually.</div>}
     </CollapsibleSection>
-    <CollapsibleSection id="barbers" icon={<UsersRound size={17} />} title="Barbers" count={barbers.length} open={openSections.barbers} onToggle={() => toggleSection('barbers')} headingActions={<button type="button" className="add-inline-button" onClick={addBarber}><Plus size={15} /> Add Barber</button>}>
-      <p className="collapsible-lede">Add the people customers can choose during booking.</p>
+    <CollapsibleSection id="barbers" innerRef={node => { sectionRefs.current.barbers = node; }} icon={<UsersRound size={18} />} title="Barbers" subtitle={EDITOR_SECTION_SUBTITLES.barbers} count={barbers.length} flag={sectionFlag('barbers')} summary={sectionSummary('barbers', barbers.length ? `${barbers.length} team member${barbers.length === 1 ? '' : 's'}` : 'No barbers added yet')} open={openSections.barbers} onToggle={() => toggleSection('barbers')} headingActions={<button type="button" className="add-inline-button" onClick={addBarber}><Plus size={15} /> Add Barber</button>}>
+      <p className="collapsible-lede">Optional · add the people customers can choose during booking. Every barber needs a Barber Name <em className="required-star">*</em>.</p>
       <div className="editor-items">{barbers.map(item => {
         const itemKey = `barber-${item.id}`;
-        return <CollapsibleEditorCard idPrefix={itemKey} image={<label className="editor-barber-image" aria-label={`Replace photo for ${item.name || 'new barber'}`}><ImageWithFallback src={item.image} fallback="/assets/brand/naai-logo-dark.svg" alt="" /><span><Pencil size={11} /></span><input type="file" accept="image/*" onChange={event => selectBarberImage(item.id, event)} /></label>} title={item.name || 'New Barber'} subtitle={item.isAvailable ? 'Available' : 'Away'} expanded={Boolean(expandedItems[itemKey])} onToggle={() => toggleItem(itemKey)} onDelete={() => removeBarber(item.id)} deleteLabel={`Delete ${item.name || 'barber'}`} key={item.id}>
-          <div className="form-two-col"><Field label="Barber Name"><input value={item.name} onChange={event => updateBarber(item.id, 'name', event.target.value)} placeholder="Barber name" /></Field><Field label="Rating" hint="Out of 5"><input type="number" min="0" max="5" step="0.1" value={item.rating} onChange={event => updateBarber(item.id, 'rating', event.target.value)} placeholder="Rating" /></Field></div>
+        return <CollapsibleEditorCard idPrefix={itemKey} image={<label className="editor-barber-image" aria-label={`Replace photo for ${item.name || 'new barber'}`}><ImageWithFallback src={item.image} fallback="/assets/brand/naai-logo-dark.svg" alt="" /><span><Pencil size={11} /></span><input type="file" accept="image/*" onChange={event => selectBarberImage(item.id, event)} /></label>} title={item.name || 'New Barber'} flag={barberIncomplete(item) ? 'Name required' : ''} subtitle={item.isAvailable ? 'Available' : 'Away'} expanded={Boolean(expandedItems[itemKey])} onToggle={() => toggleItem(itemKey)} onDelete={() => removeBarber(item.id)} deleteLabel={`Delete ${item.name || 'barber'}`} key={item.id}>
+          <div className="form-two-col"><Field label="Barber Name" required><input value={item.name} onChange={event => updateBarber(item.id, 'name', event.target.value)} placeholder="Barber name" /></Field><Field label="Rating" hint="Optional · out of 5"><input type="number" min="0" max="5" step="0.1" value={item.rating} onChange={event => updateBarber(item.id, 'rating', event.target.value)} placeholder="Rating" /></Field></div>
           <div className="switch-form-row"><span><strong>Availability</strong><small>Available barbers can be picked at booking.</small></span><Toggle checked={item.isAvailable} onChange={value => updateBarber(item.id, 'isAvailable', value)} /></div>
         </CollapsibleEditorCard>;
       })}</div>
       {!barbers.length && <div className="editor-empty">No barbers added. Customers can still choose any available chair.</div>}
     </CollapsibleSection>
-    <div className="editor-actions"><Button type="button" variant="secondary" onClick={() => navigate(-1)} disabled={isOnboarding}>Cancel</Button><Button type="submit" loading={saving}>{isOnboarding ? 'Save and continue' : 'Save profile'} <Check size={17} /></Button></div>
+    <div className="editor-actions"><Button type="button" variant="secondary" onClick={goBackToAccount} disabled={isOnboarding}>Cancel</Button><Button type="submit" loading={saving}>{needsPaymentStep ? 'Save and continue to payment' : isOnboarding ? 'Save and continue' : 'Save profile'} <Check size={17} /></Button></div>
   </form></div>;
 }
-
-// Plan catalog, renewal plans and the free onboarding plan live in
-// src/lib/planDetails.js so the subscription picker and the active-plan
-// displays always use the mobile app's names and prices.
-
-export function SubscriptionScreen({ params = {}, navigate, notify, onAuthComplete, onSessionUpdate }) {
-  const registrationData = params.registrationData;
-  const isRegistration = Boolean(registrationData);
-  const isUpgrade = Boolean(params.isUpgrade || params.mode === 'RENEW');
-  const isOnboarding = params.isOnboarding === true || params.isOnboarding === 'true';
-  const showFreeOnboarding = isOnboarding && !isRegistration;
-  const paidPlans = isUpgrade ? RENEWAL_PLANS : PARTNER_PLANS;
-  const plans = showFreeOnboarding ? [FREE_ONBOARDING_PLAN, ...paidPlans] : paidPlans;
-  const [selected, setSelected] = useState(() => showFreeOnboarding ? FREE_ONBOARDING_PLAN.id : isRegistration ? 'trial_2_months' : '');
-  const [loading, setLoading] = useState(false);
-
-  const processPayment = async plan => {
-    const paymentKey = import.meta.env.VITE_RAZORPAY_KEY_ID || 'rzp_live_ST8yVm3RaFMiHW';
-    let order;
-    try {
-      const response = await api.createPaymentOrder({ amount: plan.price, currency: 'INR' });
-      order = response?.order;
-    } catch (error) {
-      notify?.('error', getErrorMessage(error, 'Could not create payment order.'));
-      return null;
-    }
-    if (!window.Razorpay || !order?.id) {
-      notify?.('error', 'Payment gateway is unavailable. Please try again in a moment.');
-      return null;
-    }
-    return new Promise(resolve => {
-      let settled = false;
-      const finish = value => {
-        if (settled) return;
-        settled = true;
-        resolve(value);
-      };
-      const razorpay = new window.Razorpay({
-        key: paymentKey,
-        amount: Number(plan.price) * 100,
-        currency: 'INR',
-        name: 'MyNaai',
-        description: 'Salon partner subscription',
-        order_id: order.id,
-        theme: { color: GOLD },
-        prefill: { name: registrationData?.ownerName || '', contact: registrationData?.phoneNumber || '' },
-        handler: payment => finish({
-          ...payment,
-          orderId: payment.razorpay_order_id || order.id,
-          paymentId: payment.razorpay_payment_id,
-          signature: payment.razorpay_signature,
-        }),
-        modal: { ondismiss: () => finish(null) },
-      });
-      razorpay.on('payment.failed', () => finish(null));
-      razorpay.open();
-    });
-  };
-
-  const completeFreeOnboarding = () => {
-    localStorage.setItem('isNewSalon', 'false');
-    onSessionUpdate?.({}, { isNewSalon: false });
-    notify?.('success', 'Your free trial is ready. Welcome to MyNaai.');
-    navigate('queue', {}, { replace: true });
-  };
-
-  const continuePlan = async () => {
-    const plan = plans.find(item => item.id === selected);
-    if (!plan) return notify?.('error', 'Please choose a plan to continue.');
-    if (showFreeOnboarding && plan.id === FREE_ONBOARDING_PLAN.id) return completeFreeOnboarding();
-    if (isRegistration && !String(registrationData?.deviceToken || '').trim()) return notify?.('error', 'Browser notifications must be enabled before salon registration can continue.');
-    setLoading(true);
-    try {
-      if (isRegistration) {
-        if (!String(registrationData?.tempToken || '').trim()) throw new Error('Salon verification expired. Please sign in again.');
-        // The OTP endpoint returns a temporary authorization token. Keep it only
-        // for the create-salon request; the completed response must return the
-        // persisted salon session that is used by the portal afterwards.
-        setToken(registrationData.tempToken);
-        let payment = { paymentId: 'web_free_trial', orderId: '', signature: '' };
-        if (plan.price > 0) {
-          payment = await processPayment(plan);
-          if (!payment?.paymentId) return;
-          if (!payment.orderId || !payment.signature) throw new Error('Payment could not be verified. Please try again.');
-        }
-        const response = await api.createSalon({
-          ...registrationData,
-          planType: plan.id,
-          paymentId: payment.paymentId,
-          orderId: payment.orderId,
-          signature: payment.signature,
-        }, {
-          headers: { Authorization: `Bearer ${registrationData.tempToken}` },
-        });
-        if (response?.status !== 'SUCCESS') throw new Error(response?.message || 'Salon registration failed.');
-        const token = response.token || response.data?.token;
-        if (!token) throw new Error('Salon registration completed without a login session. Please try again.');
-        const createdSalonId = response.salonId || response.data?.salonId || response.salon?.salonId || response.data?.salon?.salonId;
-        if (!createdSalonId) throw new Error('Salon registration completed without a salon ID. Please try again.');
-        const user = {
-          ...registrationData,
-          salonId: createdSalonId,
-          salon: { ...(registrationData.salon || {}), salonId: createdSalonId },
-          isNewSalon: false,
-          profileCompleted: true,
-        };
-        delete user.tempToken;
-        onAuthComplete?.({ role: 'SALON', token, user, userId: createdSalonId, isNewSalon: false });
-        return;
-      }
-      const payment = await processPayment(plan);
-      if (!payment?.paymentId) return;
-      const response = await api.renewSalon({ planType: plan.id, paymentId: payment.paymentId, totalAmount: plan.price });
-      if (response?.status !== 'SUCCESS') throw new Error(response?.message || 'Renewal failed.');
-      notify?.('success', 'Plan renewed successfully.');
-      navigate('account', {}, { replace: true });
-    } catch (error) {
-      notify?.('error', getErrorMessage(error, 'Payment process failed.'));
-    } finally { setLoading(false); }
-  };
-
-  const handleBack = isRegistration
-    ? params.onBack
-    : isOnboarding
-      ? () => navigate('queue', {}, { replace: true })
-      : () => navigate(-1);
-  return <div className="screen subscription-screen"><PageHeader title={isUpgrade ? 'Renew your plan' : 'Choose your plan'} subtitle={isOnboarding ? 'Choose how you want to start your salon journey.' : isUpgrade ? 'Keep your salon visible and ready for bookings.' : 'Start building your salon presence on MyNaai.'} onBack={handleBack} /><div className="subscription-intro"><div className="subscription-mark"><Crown size={21} /></div><div><strong>{isOnboarding ? 'Your salon is ready for a final choice' : isUpgrade ? 'Keep the momentum going' : 'Simple plans for growing salons'}</strong><p>{isOnboarding ? 'Start with a 20-day free trial or choose a paid plan.' : 'No confusing tiers. Pick what fits your business today.'}</p></div></div><div className="plan-grid">{plans.map(plan => <button className={cx('plan-card', selected === plan.id && 'active')} key={plan.id} onClick={() => setSelected(plan.id)} disabled={loading}>{plan.best && <span className="plan-best">{plan.id === FREE_ONBOARDING_PLAN.id ? 'DEFAULT' : 'BEST VALUE'}</span>}<span className="plan-radio">{selected === plan.id && <Check size={13} />}</span><span className="plan-card-title">{plan.title}</span><strong>{plan.displayPrice || formatCurrency(plan.price)}</strong><span>{plan.duration}</span><small>{plan.note}</small></button>)}</div><div className="plan-benefits"><span><CheckCircle2 size={15} /> Be discoverable nearby</span><span><CheckCircle2 size={15} /> Manage your live queue</span><span><CheckCircle2 size={15} /> Get booking updates</span></div><Button className="subscription-continue" onClick={continuePlan} loading={loading}>{isOnboarding && selected === FREE_ONBOARDING_PLAN.id ? 'Start free trial' : isUpgrade ? 'Renew plan' : 'Continue to payment'} <ArrowRightIcon /></Button>{!isOnboarding && <p className="secure-payment"><WalletCards size={14} /> Secure payments powered by Razorpay</p>}</div>;
-}
-
-function ArrowRightIcon() { return <ChevronRight size={17} />; }
 
 export function BookingRequestScreen({ params, navigate, notify }) {
   const [details, setDetails] = useState(null);

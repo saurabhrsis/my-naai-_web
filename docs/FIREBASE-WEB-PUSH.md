@@ -108,6 +108,51 @@ POST /api/bookingRequest/owner-action/{bookingRequestId}/
 
 The backend is expected to persist the delay and send the `DELAY_TIME_PROPOSAL` message to the customer’s stored `deviceToken`.
 
+### What the Firebase SDK actually does with a background message
+
+Verified against `node_modules/@firebase/messaging/dist/index.sw.cjs` (Firebase JS SDK 11.10.0), because the two behaviours below are the reason web push "did not work" while mobile push did:
+
+1. `onPush()` — if the service worker has a *visible* client, the payload is `postMessage`d to the page and **no** OS notification is shown; the page's `onMessage()` renders it.
+2. Otherwise, when the payload has a `notification` block, the SDK calls `registration.showNotification()` **itself** using `wrapInternalPayload()` — the displayed options are the notification fields plus `data: { FCM_MSG: <full original payload> }`.
+3. `onBackgroundMessageHandler(payload)` is awaited for **every** background message, *including* ones the SDK just displayed (`await messaging.onBackgroundMessageHandler(payload)` inside `event.waitUntil(onPush(e, messaging))`).
+4. The SDK also registers its own `notificationclick` handler when `firebase.messaging()` is created. It reads `event.notification.data.FCM_MSG`, calls `event.stopImmediatePropagation()`, closes the notification, and then opens **only** `payload.fcmOptions.link` or `notification.click_action`. With neither set — which is what the current MyNaai backend sends — the click does nothing at all.
+
+Consequences:
+
+- Any `notificationclick` listener registered *after* `firebase.messaging()` never runs for SDK-displayed alerts, so a message with a `notification` block was visible but **un-clickable**.
+- Because the SDK displays the alert *and* still calls `onBackgroundMessage()`, a handler that displayed it again produced **two** notifications.
+
+`public/firebase-messaging-sw.js` now handles both payload shapes correctly, so **no backend change is strictly required** for web push to display and deep-link:
+
+- MyNaai's `notificationclick` listener is the first statement in the worker, before `importScripts()` and `firebase.messaging()`, so it wins the listener order. It defers to the SDK when the payload configures `fcmOptions.link` / `click_action`; otherwise it stops propagation, closes the alert, unwraps `data.FCM_MSG` and routes to the screen for `data.type` — reusing a visible same-origin tab (navigating and focusing it) or opening a new window.
+- `onBackgroundMessage()` returns immediately when `payload.notification.title || payload.notification.body` is set (the SDK already displayed that one) and otherwise displays the data-only message. It **returns** the `showNotification()` promise, which matters: the SDK awaits the handler inside the push event's `waitUntil()`, so returning it keeps the worker alive until the alert is actually on screen.
+
+For `platform: "web"` tokens the preferred backend shape is still **data-only**, because the mobile `data` contract already carries everything the portal needs (`type`, `bookingRequestId`, `title`, `body`, `delayMinutes`, `proposedTime`) and it avoids relying on worker listener ordering:
+
+```json
+{
+  "message": {
+    "token": "<stored-web-device-token>",
+    "data": {
+      "type": "BOOKING_REQUEST",
+      "bookingRequestId": "booking-request-id",
+      "title": "New booking request",
+      "body": "Rahul requested a haircut at 5:00 PM"
+    },
+    "webpush": {
+      "fcm_options": {
+        "link": "https://portal.mynaai.in/#/bookingRequest?bookingRequestId=booking-request-id"
+      },
+      "notification": { "requireInteraction": true }
+    }
+  }
+}
+```
+
+If a `notification` block must stay (for example because one sender serves mobile and web), keep the `data` fields identical — the worker reads them through `FCM_MSG` — and optionally add `webpush.fcm_options.link` as above; when that link is present the SDK's own click handling takes over and the portal simply defers to it. The link must be same-origin with the portal.
+
+Nothing else changes server-side: the same FCM sender, the same `data.type` vocabulary and the same `deviceToken` column work for web. The web registration token is simply longer than an Android token, so make sure the column is not truncated (store at least 255 characters).
+
 ## 4.1 Backend validation requirement
 
 MyNaai intentionally treats push as a required feature because booking notifications, buzzer behavior and notification actions are part of the core workflow. Keep `deviceToken` required and non-empty on the authentication/onboarding endpoints. The portal now obtains the browser token before sending the OTP request and blocks the request with a clear setup error if it cannot obtain one; it never sends `deviceToken: ''`.
@@ -132,25 +177,43 @@ A dedicated authenticated endpoint such as `POST /api/notifications/register-dev
 ```
 
 The current portal sends the token during the auth flow, but this endpoint is useful when a browser token rotates or the user changes notification permission. If the backend requires only one token field, make sure a web login does not disable the user’s mobile notifications by overwriting the mobile token.
+## 4.2 On-device notification diagnostics
+
+"Notifications are not working" can come from five different layers — HTTPS, the Firebase build config, the browser permission, the messaging service worker and the FCM token — spread across the browser, the deployment and the backend. Both Account screens (salon and customer) therefore render a collapsible **Notification status** card (`src/components/NotificationDiagnostics.jsx`) that names the failing layer on the device the person is holding.
+
+`getPushDiagnostics()` in `src/lib/push.js` reports nine checks, each `ok` / `warn` / `fail` with a plain-English detail line:
+
+1. Secure context (HTTPS) — `window.isSecureContext`
+2. Browser APIs — `Notification` + `navigator.serviceWorker`
+3. Firebase web config — the messaging-critical keys (`apiKey`, `projectId`, `messagingSenderId`, `appId`, `vapidKey`); `authDomain`/`storageBucket` are reported as not-needed rather than as failures
+4. Notification permission — `granted` / `default` / `denied`
+5. Firebase Messaging — the SDK client could be created (`isSupported()` + `getMessaging()`)
+6. Messaging service worker — read via `navigator.serviceWorker.getRegistrations()` so the check describes the current state instead of triggering a registration
+7. Push subscription — the Web Push subscription endpoint host behind the token
+8. FCM device token — masked (`first 14…last 6 (n chars)`), never rendered in full
+9. Last foreground message — `recordForegroundMessage()` (called from the `onMessage` handler in `src/App.jsx`) stores the type/title/time of the most recent message the page received, so "the backend never sent it" and "the page received it but nothing appeared" can be told apart
+
+The card offers **Run again**, **Allow notifications** (only when permission is missing) and **Copy report**, which copies `formatPushDiagnostics()` — one `OK · label: value — detail` line per check — for support tickets.
+
 ### Foreground delivery
 
-When the portal tab is open, `onMessage()` in `src/lib/push.js` delivers the payload to `App.jsx`. The app maps the payload to a route immediately so the matching screen is visible:
+FCM hands foreground web messages to the page instead of the OS, so nothing appears unless the app renders it. `onMessage()` in `src/lib/push.js` therefore:
 
-- Customer delay proposal → `#/delay`
-- Customer booking status → `#/bookings`
-- Salon booking request → `#/bookingRequest`
-- Salon delay action → `#/bookingRequest` with `openDelayModal=true`
+1. Normalizes the payload (`normalizePushPayload`) — FCM can deliver `{ notification, data }`, data-only, or a `notification` block next to an **empty** `data` object; all three are merged so the type and IDs are never lost.
+2. Displays a real browser notification through the messaging service worker (`displayNotification`), which keeps the same click destination as a background notification.
+3. Shows an in-app toast so a partner working in the portal sees the alert even with OS notifications muted.
+4. Auto-navigates **only** for time-critical actions — salon `BOOKING_REQUEST` / `DELAY_BOOKING` and customer `DELAY_TIME_PROPOSAL` — and never when that screen is already open. Informational messages (booking confirmed/rejected, delay response) no longer pull a customer out of the booking flow; the notification click still routes to `#/bookings`.
 
-This is the web equivalent of the mobile app’s foreground notification route handling. The browser does not need the background worker to process a message while the React page is active.
+The browser does not need the background worker to process a message while the React page is active, but the same worker registration is reused to display it so click routing stays in one place.
 
 ### Background delivery
 
-When the page is hidden, closed or not controlling the tab, Firebase invokes `onBackgroundMessage()` in `public/firebase-messaging-sw.js`. The worker:
+When the page is hidden, closed or not controlling the tab:
 
-1. Reads the `data` and `notification` fields.
-2. Shows a browser notification using the MyNaai icon.
-3. Stores the calculated destination in the notification’s `data`.
-4. On a notification click, closes the notification, navigates an existing MyNaai window or opens a new one, and focuses it.
+- **Data-only message** → the SDK calls `onBackgroundMessage()` in `public/firebase-messaging-sw.js`, which shows the alert with the MyNaai icon, tags it by `bookingRequestId`/`type`, keeps `BOOKING_REQUEST` on screen (`requireInteraction`) and stores the calculated destination in the notification's `data.target`.
+- **Message with a `notification` block** → the SDK displays the alert itself (wrapped as `data.FCM_MSG`) and the worker deliberately shows nothing extra, so there is exactly one notification either way.
+
+On a notification click, the worker closes the alert and navigates an existing same-origin MyNaai window (preferring a visible one) or opens a new one on the deep link, then focuses it.
 
 The destination is a normal URL with a hash route, so a cold-start click works without native navigation APIs:
 
@@ -194,10 +257,15 @@ Do not replace `public/sw.js` with the Firebase worker and do not register both 
 
 ## 8. Troubleshooting
 
+### Start with the Notification status card
+
+Open the Account screen (salon or customer) and expand **Notification status**. It reports the HTTPS context, browser APIs, Firebase web config, permission, messaging client, service worker, push subscription, masked token and last foreground message in one place, and **Copy report** produces a text block that pinpoints the layer. The remaining sections explain how to fix what it reports.
+
 ### No permission prompt
 
 - Confirm every `VITE_FIREBASE_*` variable is present at build time.
 - Restart Vite after changing `.env.local`.
+- The portal now names the reason instead of failing silently: an unconfigured deployment, an unsupported browser context (iPhone/iPad needs the installed PWA), a denied permission and a token failure all render their own card, because sign-in cannot continue without a `deviceToken`.
 - Confirm the site is HTTPS (or running on `localhost`).
 - Check that the browser has not permanently blocked notifications for the origin.
 - The app offers an explicit notification action on its initial onboarding/login view and again in the authenticated workspace; OTP actions also request permission when needed.
@@ -220,6 +288,13 @@ Do not replace `public/sw.js` with the Firebase worker and do not register both 
 
 ### Notification appears but opens the wrong screen
 
-- Inspect the notification payload’s `data.type` and `bookingRequestId`.
+- Inspect the notification payload's `data.type` and `bookingRequestId`.
 - Ensure the signed-in role is correct (`USER` or `SALON`).
-- Clear an old service-worker registration after changing the worker, then reload the HTTPS site.
+- Clear an old service-worker registration after changing the worker, then reload the HTTPS site — the browser keeps running the previously installed worker until it is replaced and all tabs are closed.
+
+### Notification appears but nothing happens on click
+
+- Confirm the deployed worker is the current one (DevTools → Application → Service Workers → the `firebase-cloud-messaging-push-scope` registration → its script must start with the `notificationclick` listener).
+- A stale cached worker from before this fix still lets the SDK swallow the click; unregister it and reload.
+- If the backend sets `webpush.fcm_options.link`, that link must be same-origin, otherwise the SDK refuses to open it.
+

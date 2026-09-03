@@ -12,6 +12,36 @@
     <link rel="apple-touch-icon" href="/icons/icon-192.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <script src="https://checkout.razorpay.com/v1/checkout.js" async></script>
+    <script>
+      // Installed inline so it runs before the app bundle: Chrome DevTools'
+      // Performance panel injects an anonymous helper script that throws
+      // "Cannot read properties of undefined (reading 'startTime')" from
+      // et.reportAllChanges while DevTools is open. It is a DevTools bug (see
+      // angular/angular#70464), not MyNaai code — src/lib/devtoolsShield.js
+      // documents it. Swallow only that exact signature; everything else is
+      // reported normally.
+      (function () {
+        if (window.__mynaaiDevToolsShieldInstalled) return;
+        window.__mynaaiDevToolsShieldInstalled = true;
+        var known = function (message, stack, filename) {
+          if (!/reading 'startTime'/.test(String(message || ''))) return false;
+          if (/\breportAllChanges\b/.test(String(stack || ''))) return true;
+          return !stack || /^(<anonymous>|devtools:|chrome-extension:)/i.test(String(filename || ''));
+        };
+        window.addEventListener('error', function (event) {
+          if (!event || event.defaultPrevented) return;
+          if (!known(event.message, event.error && event.error.stack, event.filename)) return;
+          event.preventDefault();
+          if (event.stopImmediatePropagation) event.stopImmediatePropagation();
+          console.debug('Ignored a known Chrome DevTools Performance-panel error (reportAllChanges/startTime).');
+        }, true);
+        window.addEventListener('unhandledrejection', function (event) {
+          var reason = event && event.reason;
+          if (!reason || !known(reason.message, reason.stack, '')) return;
+          event.preventDefault();
+        }, true);
+      })();
+    </script>
     <title>MyNaai — your salon, your time</title>
   </head>
   <body>

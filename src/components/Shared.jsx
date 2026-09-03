@@ -214,12 +214,38 @@ export function Modal({ open, onClose, title, children, size = '', closeOnOverla
   );
 }
 
-export function Field({ label, hint, error, children, className = '' }) {
-  return <label className={cx('field', className)}>{label && <span className="field-label">{label}</span>}{children}{hint && <small className="field-hint">{hint}</small>}{error && <small className="field-error">{error}</small>}</label>;
+// `required` renders the same red asterisk the mobile editor uses for the
+// fields its validation enforces, so partners can see what must be filled in
+// while every section stays collapsed.
+export function Field({ label, hint, error, required = false, children, className = '' }) {
+  return (
+    <label className={cx('field', required && 'field-is-required', className)}>
+      {label && (
+        <span className="field-label">
+          {label}
+          {required && <em className="required-star" aria-hidden="true">*</em>}
+          {required && <span className="sr-only"> (required)</span>}
+        </span>
+      )}
+      {children}
+      {hint && <small className="field-hint">{hint}</small>}
+      {error && <small className="field-error">{error}</small>}
+    </label>
+  );
 }
 
-export function SelectField({ label, value, onChange, options, placeholder = 'Select', ...props }) {
-  return <Field label={label}><span className="select-wrap"><select value={value} onChange={onChange} {...props}><option value="">{placeholder}</option>{options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select><ChevronDown size={16} /></span></Field>;
+export function SelectField({ label, value, onChange, options, placeholder = 'Select', required = false, hint, error, className = '', ...props }) {
+  return (
+    <Field label={label} required={required} hint={hint} error={error} className={className}>
+      <span className="select-wrap">
+        <select value={value} onChange={onChange} aria-required={required || undefined} {...props}>
+          <option value="">{placeholder}</option>
+          {options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+        </select>
+        <ChevronDown size={16} />
+      </span>
+    </Field>
+  );
 }
 
 
