@@ -185,6 +185,12 @@ if (firebaseConfig.apiKey && firebaseConfig.projectId && firebaseConfig.messagin
     // closed service worker cannot synthesize a custom tone.
     const buzzer = type === 'BOOKING_REQUEST' || type === 'DELAY_BOOKING' || type === 'DELAY_TIME_PROPOSAL';
     const isBookingRequest = type === 'BOOKING_REQUEST';
+    // Best-effort background sound: the worker passes the buzzer file to the
+    // browser so it can play it when the PWA is closed. Web notification sound
+    // support is inconsistent (Android largely uses the OS/channel sound and
+    // ignores a custom URL), so this is the same limit the mobile-vs-web split
+    // imposes — the real buzzer always plays via Web Audio while the app is open.
+    const sound = buzzer ? new URL('/assets/audio/buzzer_old.wav', self.location.origin).href : 'default';
 
     // Returning the promise matters: the SDK awaits this handler inside the
     // push event's waitUntil(), so the worker stays alive long enough to show
@@ -198,7 +204,9 @@ if (firebaseConfig.apiKey && firebaseConfig.projectId && firebaseConfig.messagin
       requireInteraction: isBookingRequest,
       // "Buzzer" vibration for booking alerts on supporting Android browsers.
       vibrate: buzzer ? [260, 120, 260, 120, 520] : undefined,
-      // Accept / Reject / Delay buttons on booking requests.
+      sound,
+      // Accept / Reject / Delay buttons ONLY on booking requests. Every other
+      // notification type carries no action buttons and just opens the app.
       actions: isBookingRequest
         ? [
             { action: ACTION_ACCEPT, title: 'Accept' },

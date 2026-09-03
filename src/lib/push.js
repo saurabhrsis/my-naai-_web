@@ -169,6 +169,7 @@ export function bookingRequestActions() {
 export async function displayNotification({ title, body, data = {} } = {}) {
   if (typeof window === 'undefined' || !('Notification' in window) || Notification.permission !== 'granted') return false;
   const type = String(data.type || data.notificationType || '').toUpperCase();
+  const buzzer = type === 'BOOKING_REQUEST' || type === 'DELAY_BOOKING' || type === 'DELAY_TIME_PROPOSAL';
   const options = {
     body: body || 'You have a new update from MyNaai.',
     icon: '/icons/icon-192.png',
@@ -177,9 +178,13 @@ export async function displayNotification({ title, body, data = {} } = {}) {
     data: { ...data, target: notificationTarget(data) },
     requireInteraction: type === 'BOOKING_REQUEST' || type === 'DELAY_TIME_PROPOSAL',
     // Buzzer-style vibration for time-critical alerts (Android browsers).
-    vibrate: type === 'BOOKING_REQUEST' || type === 'DELAY_TIME_PROPOSAL' ? [260, 120, 260, 120, 520] : undefined,
-    // Accept / Reject / Delay action buttons on booking requests (when the
-    // browser supports notification actions).
+    vibrate: buzzer ? [260, 120, 260, 120, 520] : undefined,
+    // Best-effort background buzzer sound. The real buzzer always plays via
+    // Web Audio while the app is open; this lets a supporting browser sound it
+    // when the tab is hidden. Web notification sound support is inconsistent.
+    sound: buzzer ? '/assets/audio/buzzer_old.wav' : 'default',
+    // Accept / Reject / Delay action buttons ONLY on booking requests. Every
+    // other notification type carries no action buttons.
     actions: type === 'BOOKING_REQUEST' && supportsActions() ? bookingRequestActions() : undefined,
   };
   try {
