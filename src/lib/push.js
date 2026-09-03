@@ -108,18 +108,18 @@ async function peekPushServiceWorker() {
 // useful instead of failing silently.
 export async function getPushStatus() {
   if (typeof window === 'undefined' || !('Notification' in window)) return { state: 'unsupported', reason: 'This browser cannot show notifications.' };
-  if (!('serviceWorker' in navigator)) return { state: 'unsupported', reason: 'Service workers are unavailable, so web push cannot run.' };
-  if (!isPushConfigured()) return { state: 'unconfigured', reason: 'Firebase web push is not configured for this deployment (VITE_FIREBASE_* and VITE_FIREBASE_VAPID_KEY).' };
+  if (!('serviceWorker' in navigator)) return { state: 'unsupported', reason: 'This browser cannot run web notifications. Try Chrome, Edge or Samsung Internet.' };
+  if (!isPushConfigured()) return { state: 'unconfigured', reason: 'Notifications have not been enabled for this build yet — please contact My Naai support.' };
   if (Notification.permission === 'denied') return { state: 'denied', reason: 'Notifications are blocked in the browser permissions for this site.' };
   const messaging = await getMessagingClient();
   if (!messaging) {
     // iOS only exposes web push to installed PWAs (iOS 16.4+).
-    const installedHint = window.matchMedia?.('(display-mode: standalone)').matches ? '' : ' On iPhone/iPad, install MyNaai to the home screen first.';
-    return { state: 'unsupported', reason: `Firebase Messaging is not supported in this browser context.${installedHint}` };
+    const installedHint = window.matchMedia?.('(display-mode: standalone)').matches ? '' : ' On iPhone/iPad, install the My Naai app to your home screen first.';
+    return { state: 'unsupported', reason: `This browser context cannot receive web notifications.${installedHint}` };
   }
   if (Notification.permission === 'default') return { state: 'needs-permission', reason: 'Notification permission has not been granted yet.' };
   const token = await getPushToken({ requestPermission: false });
-  return token ? { state: 'enabled', token } : { state: 'unavailable', reason: 'Firebase could not create a push token for this browser.' };
+  return token ? { state: 'enabled', token } : { state: 'unavailable', reason: 'We could not prepare notifications in this browser. Please try again.' };
 }
 
 export async function getPushToken({ requestPermission = false } = {}) {
@@ -147,7 +147,7 @@ export async function getPushToken({ requestPermission = false } = {}) {
 }
 
 // Booking-request notifications expose Accept / Reject / Delay action buttons,
-// mirroring the MyNaai mobile app. Browsers cap action buttons at two (Chrome),
+// mirroring the My Naai mobile app. Browsers cap action buttons at two (Chrome),
 // so Accept + Reject are guaranteed and Delay stays reachable by tapping the
 // body or in the request screen itself; every action is also handled by the
 // service worker so it works when the app is closed.
@@ -171,7 +171,7 @@ export async function displayNotification({ title, body, data = {} } = {}) {
   const type = String(data.type || data.notificationType || '').toUpperCase();
   const buzzer = type === 'BOOKING_REQUEST' || type === 'DELAY_BOOKING' || type === 'DELAY_TIME_PROPOSAL';
   const options = {
-    body: body || 'You have a new update from MyNaai.',
+    body: body || 'You have a new update from My Naai.',
     icon: '/icons/icon-192.png',
     badge: '/icons/icon-192.png',
     tag: data.bookingRequestId || data.type || 'mynaai-notification',
@@ -190,14 +190,14 @@ export async function displayNotification({ title, body, data = {} } = {}) {
   try {
     const registration = await getPushServiceWorker();
     if (registration?.showNotification) {
-      await registration.showNotification(title || 'MyNaai update', options);
+      await registration.showNotification(title || 'My Naai update', options);
       return true;
     }
   } catch (error) {
     console.debug(getErrorMessage(error, 'The notification service worker could not display the alert.'));
   }
   try {
-    new Notification(title || 'MyNaai update', { body: options.body, icon: options.icon, tag: options.tag });
+    new Notification(title || 'My Naai update', { body: options.body, icon: options.icon, tag: options.tag });
     return true;
   } catch (error) {
     console.debug(getErrorMessage(error, 'This browser blocked the in-page notification.'));
@@ -227,8 +227,8 @@ export function normalizePushPayload(payload = {}) {
   const data = { ...fallback, ...raw };
   if (!data.type && notification.click_action) data.type = String(notification.click_action);
   return {
-    title: notification.title || data.title || data.notificationTitle || 'MyNaai update',
-    body: notification.body || data.body || data.message || data.notificationBody || 'You have a new update from MyNaai.',
+    title: notification.title || data.title || data.notificationTitle || 'My Naai update',
+    body: notification.body || data.body || data.message || data.notificationBody || 'You have a new update from My Naai.',
     data,
     type: String(data.type || data.notificationType || '').toUpperCase(),
     hasData: Boolean(Object.keys(raw).length),

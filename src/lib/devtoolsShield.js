@@ -1,12 +1,12 @@
 // Suppresses a known Chrome DevTools internal crash that shows up in the
-// MyNaai console as:
+// My Naai console as:
 //
 //   Uncaught TypeError: Cannot read properties of undefined (reading 'startTime')
 //     at et.reportAllChanges (<anonymous>:2:19429)
 //     at <anonymous>:2:13070 ...
 //
 // That stack comes from Chrome's own DevTools Performance-panel helper script
-// (evaluated into the page as an anonymous VM script), not from any MyNaai or
+// (evaluated into the page as an anonymous VM script), not from any My Naai or
 // vendor code — the identical signature and offsets are documented in
 // angular/angular#70464 and it only fires while DevTools is open. Nothing in
 // this repository reads a `startTime` property outside
@@ -32,7 +32,7 @@ export function isDevToolsPerformanceNoise({ message = '', stack = '', filename 
 export function installDevToolsErrorShield() {
   if (typeof window === 'undefined' || window[FLAG]) return;
   window[FLAG] = true;
-  const ignore = () => console.debug('Ignored a known Chrome DevTools Performance-panel internal error (reportAllChanges/startTime). It is not caused by MyNaai.');
+  const ignore = () => console.debug('Ignored a known Chrome DevTools Performance-panel internal error (reportAllChanges/startTime). It is not caused by My Naai.');
 
   // Capture phase: run before app-level listeners and React's error handling so
   // the noise cannot bubble up as an "Uncaught" console error.

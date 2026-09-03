@@ -1,13 +1,14 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Bell, CheckCircle2, ChevronDown, CircleAlert, Copy, RefreshCw, TriangleAlert } from 'lucide-react';
+import { Bell, CheckCircle2, ChevronDown, CircleAlert, Copy, RefreshCw } from 'lucide-react';
 import { formatPushDiagnostics, getPushDiagnostics, getPushToken } from '../lib/push';
 import { Button, cx } from './Shared';
 
-// "Notifications are not working" can come from five different layers — HTTPS,
-// the Firebase build config, the browser permission, the messaging service
-// worker and the FCM token — spread across the browser, the deployment and the
-// backend. This card names the failing layer on the device the person is
-// actually holding, and copies a plain-text report for support.
+// "Notifications are not working" can come from several layers — browser
+// permission, Firebase config, the messaging worker or the FCM token. Users
+// never need to see those internals: this card only says notifications are
+// required, and gives them one plain way to hand the team the facts when
+// something does not arrive ("Copy report"). The full detail stays inside the
+// copied report, never on screen.
 export function NotificationDiagnostics({ onEnabled }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -25,18 +26,25 @@ export function NotificationDiagnostics({ onEnabled }) {
 
   useEffect(() => { if (open && !diagnostics && !busy) run(); }, [busy, diagnostics, open, run]);
 
+  const permission = typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'unsupported';
   const failing = (diagnostics?.checks || []).filter(check => check.state === 'fail');
-  // Once the browser has granted permission there is nothing left to ask for,
-  // so the action only appears while it can still change something.
-  const canRequestPermission = typeof window !== 'undefined' && 'Notification' in window && Notification.permission !== 'granted';
+  const working = permission === 'granted' && failing.length === 0;
+  const canRequestPermission = permission === 'default';
+
   const summary = !diagnostics
-    ? 'Check permission, service worker and token on this device'
-    : failing.length
-      ? `${failing.length} check${failing.length === 1 ? '' : 's'} need attention`
-      : 'All checks passed on this device';
+    ? 'Required for booking buzzers and updates'
+    : working
+      ? 'Allowed in this browser'
+      : permission === 'denied'
+        ? 'Blocked in this browser'
+        : permission === 'unsupported'
+          ? 'Not supported in this browser'
+          : failing.length
+            ? 'Allowed, but something needs a fix'
+            : 'Required — allow notifications for alerts';
 
   const copyReport = async () => {
-    const text = `MyNaai web push report · ${new Date().toLocaleString('en-IN')}\n${formatPushDiagnostics(diagnostics)}`;
+    const text = `My Naai web push report · ${new Date().toLocaleString('en-IN')}\n${formatPushDiagnostics(diagnostics)}`;
     try {
       await navigator.clipboard.writeText(text);
       setCopied(true);
@@ -57,27 +65,40 @@ export function NotificationDiagnostics({ onEnabled }) {
     }
   };
 
+  const note = permission === 'denied'
+    ? 'Notifications are blocked in this browser. Open the site’s permission settings and set Notifications to Allow, so booking buzzers, delay requests and appointment updates can reach you.'
+    : permission === 'unsupported'
+      ? 'This browser cannot show notifications. Use Chrome, Edge or Samsung Internet — or install the My Naai app on iPhone/iPad.'
+      : permission === 'default'
+        ? 'Notifications are required to receive booking buzzers, delay requests and appointment updates.'
+        : failing.length
+          ? 'Notifications are allowed in this browser, but something is stopping them on this device.'
+          : 'Notifications are allowed in this browser, so booking buzzers, delay requests and appointment updates can reach you.';
+
   return (
     <section className={cx('account-card', 'notification-diagnostics', open && 'open')}>
       <button type="button" className="diagnostics-toggle" onClick={() => setOpen(value => !value)} aria-expanded={open} aria-controls="notification-diagnostics-body">
         <span className="account-menu-icon"><Bell size={18} /></span>
         <span className="diagnostics-heading">
-          <strong>Notification status</strong>
+          <strong>Notifications</strong>
           <small>{summary}</small>
         </span>
-        {diagnostics && (failing.length ? <CircleAlert size={17} className="diagnostics-mark fail" /> : <CheckCircle2 size={17} className="diagnostics-mark ok" />)}
+        {diagnostics && (working
+          ? <CheckCircle2 size={17} className="diagnostics-mark ok" />
+          : permission === 'denied' || permission === 'unsupported' || failing.length
+            ? <CircleAlert size={17} className="diagnostics-mark fail" />
+            : <CircleAlert size={17} className="diagnostics-mark warn" />)}
         <ChevronDown size={17} className="collapsible-chevron" />
       </button>
       {open && <div className="diagnostics-body" id="notification-diagnostics-body">
-        {busy && !diagnostics ? <p className="diagnostics-note">Running the checks…</p> : (diagnostics?.checks || []).map(check => (
-          <div className={cx('diagnostics-row', `row-${check.state}`)} key={check.label}>
-            <span className="diagnostics-row-mark">{check.state === 'ok' ? <CheckCircle2 size={15} /> : check.state === 'warn' ? <TriangleAlert size={15} /> : <CircleAlert size={15} />}</span>
-            <span className="diagnostics-row-copy"><strong>{check.label}</strong><small>{check.value}{check.detail ? ` — ${check.detail}` : ''}</small></span>
-          </div>
-        ))}
-        <p className="diagnostics-note">Foreground messages are shown by the portal itself; background messages are displayed by <code>firebase-messaging-sw.js</code>. If the token is present but nothing arrives, the message is not reaching this browser token on the server side.</p>
+        {!diagnostics
+          ? <p className="diagnostics-note">{busy ? 'Checking this browser…' : 'Notifications are required to receive booking buzzers, delay requests and appointment updates.'}</p>
+          : <>
+            <p className="diagnostics-note">{note}</p>
+            <p className="diagnostics-note">Missing a notification? Copy the report and share it with My Naai support — we can check it from there.</p>
+          </>}
         <div className="diagnostics-actions">
-          <Button size="small" variant="secondary" onClick={run} loading={busy}><RefreshCw size={14} /> Run again</Button>
+          <Button size="small" variant="secondary" onClick={run} loading={busy}><RefreshCw size={14} /> Check again</Button>
           {canRequestPermission && <Button size="small" variant="secondary" onClick={enable} loading={busy}>Allow notifications</Button>}
           {diagnostics && <Button size="small" variant="secondary" onClick={copyReport}><Copy size={14} /> {copied ? 'Copied' : 'Copy report'}</Button>}
         </div>

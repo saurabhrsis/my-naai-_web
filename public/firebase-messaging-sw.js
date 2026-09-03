@@ -1,5 +1,5 @@
 /*
- * Firebase Messaging service worker for MyNaai web push.
+ * Firebase Messaging service worker for My Naai web push.
  * The main app adds the public Firebase config as query parameters when it
  * registers this worker, so no environment values need to be committed here.
  *
@@ -9,14 +9,14 @@
  * SDK displayed itself — i.e. any message that carried a `notification` block.
  * It then only opens `webpush.fcm_options.link` / `notification.click_action`
  * and does nothing at all when no link is set, which is why such notifications
- * used to be un-clickable on the web. Registering MyNaai's click handler FIRST
+ * used to be un-clickable on the web. Registering My Naai's click handler FIRST
  * keeps deep links working for both payload shapes:
  *   - data-only message  -> onBackgroundMessage below builds it, we route it
  *   - notification block -> the SDK builds it, we unwrap data.FCM_MSG and route
  * and still defers to the SDK when the backend does configure a link.
  *
  * BOOKING ACTION BUTTONS. A booking-request notification carries Accept /
- * Reject / Delay buttons (mirroring the MyNaai mobile app). The worker calls the
+ * Reject / Delay buttons (mirroring the My Naai mobile app). The worker calls the
  * owner-action API directly for Accept/Reject so it works even when the PWA is
  * closed, and opens the request screen with the delay modal for Delay. The
  * session token is mirrored into IndexedDB by the app (src/lib/api.js) so the
@@ -176,8 +176,8 @@ if (firebaseConfig.apiKey && firebaseConfig.projectId && firebaseConfig.messagin
   messaging.onBackgroundMessage(payload => {
     if (payload.notification?.title || payload.notification?.body) return;
     const data = payload.data || {};
-    const title = data.title || 'MyNaai update';
-    const body = data.body || 'You have a new update from MyNaai.';
+    const title = data.title || 'My Naai update';
+    const body = data.body || 'You have a new update from My Naai.';
     const target = notificationRoute(data);
     const type = String(data.type || data.notificationType || '').toUpperCase();
     // Time-critical alerts vibrate like the mobile app's buzzer. The OS decides

@@ -1,7 +1,7 @@
 export const SALON_ABOUT_CONTENT = {
-  title: 'Partner with MyNaai',
+  title: 'Partner with My Naai',
   eyebrow: 'BUILT FOR SALONS',
-  intro: 'MyNaai helps local salons turn spare waiting time into a smoother, more thoughtful customer experience.',
+  intro: 'My Naai helps local salons turn spare waiting time into a smoother, more thoughtful customer experience.',
   sections: [
     { title: 'Your chair, your rules', text: 'Keep your services, prices, hours and specialists current so customers know exactly what to expect before they visit.' },
     { title: 'A queue that works for you', text: 'See today’s requests, accept the appointments that fit your day and mark each service complete in a couple of taps.' },
@@ -23,10 +23,10 @@ export const SALON_FAQ_CONTENT = {
 export const SALON_TERMS_CONTENT = {
   title: 'Partner terms',
   eyebrow: 'PLEASE READ',
-  intro: 'By listing your salon on MyNaai, you agree to keep business information accurate and treat customers fairly.',
+  intro: 'By listing your salon on My Naai, you agree to keep business information accurate and treat customers fairly.',
   sections: [
     { title: 'Accurate details', text: 'Keep your salon name, location, hours, service pricing and specialist availability up to date.' },
-    { title: 'Appointments', text: 'Respond to booking requests promptly and communicate any delay or change through the MyNaai workflow.' },
+    { title: 'Appointments', text: 'Respond to booking requests promptly and communicate any delay or change through the My Naai workflow.' },
     { title: 'Customer experience', text: 'Customers rely on the details you publish. Please honour confirmed appointments whenever possible.' },
   ],
 };
