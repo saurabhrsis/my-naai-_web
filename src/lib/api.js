@@ -8,6 +8,59 @@ export const API_BASE_URL = (configuredApiUrl || (import.meta.env.DEV ? '' : 'ht
 
 const TOKEN_KEY = 'mynaai';
 
+// The Firebase messaging service worker needs to perform the ACCEPT/REJECT/DELAY
+// booking actions from a notification action button even when the PWA is closed.
+// A service worker cannot read localStorage, so the session token is mirrored
+// into IndexedDB (same origin) which the worker *can* read.
+const AUTH_DB_NAME = 'mynaai-notification-actions';
+const AUTH_DB_STORE = 'auth';
+const AUTH_DB_ID = 'auth';
+
+function openAuthDb() {
+  return new Promise((resolve, reject) => {
+    if (typeof indexedDB === 'undefined') {
+      reject(new Error('IndexedDB is unavailable.'));
+      return;
+    }
+    const request = indexedDB.open(AUTH_DB_NAME, 1);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(AUTH_DB_STORE)) db.createObjectStore(AUTH_DB_STORE, { keyPath: 'id' });
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+export async function writeNotificationAuth(token, apiBaseUrl = API_BASE_URL) {
+  try {
+    const db = await openAuthDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(AUTH_DB_STORE, 'readwrite');
+      tx.objectStore(AUTH_DB_STORE).put({ id: AUTH_DB_ID, token, apiBaseUrl });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch (error) {
+    // Non-fatal: action buttons from a closed app simply won't be able to call
+    // the API without a mirror token; the in-app screen still works.
+  }
+}
+
+export async function clearNotificationAuth() {
+  try {
+    const db = await openAuthDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(AUTH_DB_STORE, 'readwrite');
+      tx.objectStore(AUTH_DB_STORE).delete(AUTH_DB_ID);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch (error) {
+    // ignore
+  }
+}
+
 export function getToken() {
   const stored = localStorage.getItem(TOKEN_KEY);
   if (!stored) return '';
@@ -20,11 +73,15 @@ export function getToken() {
 }
 
 export function setToken(token) {
-  if (token) localStorage.setItem(TOKEN_KEY, JSON.stringify({ token }));
+  if (token) {
+    localStorage.setItem(TOKEN_KEY, JSON.stringify({ token }));
+    writeNotificationAuth(token);
+  }
 }
 
 export function clearSession() {
   ['mynaai', 'mynaaiUser', 'isLoggedIn', 'userType', 'isNewSalon', 'FCM_TOKEN'].forEach(key => localStorage.removeItem(key));
+  clearNotificationAuth();
   if (typeof window !== 'undefined') window.dispatchEvent(new Event('mynaai:session-expired'));
 }
 

@@ -544,6 +544,15 @@ img { display: block; max-width: 100%; }
 .request-actions > div { display: flex; gap: 9px; }
 .request-actions > div .btn { flex: 1; }
 .request-actions > .btn { width: 100%; }
+/* Booking-request response timer (mirrors the mobile app's 60-second countdown). */
+.request-timer { margin-left: auto; flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; padding: 7px 10px; border: 1px solid rgba(232,185,126,.3); border-radius: 12px; color: var(--gold); background: rgba(0,0,0,.2); }
+.request-timer small { font-size: 9px; text-transform: uppercase; letter-spacing: .09em; color: var(--muted); }
+.request-timer strong { font-size: 16px; font-variant-numeric: tabular-nums; letter-spacing: .03em; }
+.request-timer.timer-warning { border-color: rgba(242,123,116,.5); color: var(--red); }
+.request-expired-note { max-width: 720px; display: flex; align-items: flex-start; gap: 9px; margin-top: 12px; padding: 12px 13px; border: 1px solid rgba(242,123,116,.32); border-radius: 13px; color: #f3b0aa; background: rgba(242,123,116,.08); font-size: 11.5px; line-height: 1.5; }
+.request-expired-note svg { flex: none; margin-top: 1px; }
+.request-expired-note p { margin: 0; flex: 1; }
+.request-expired-note button { flex: none; display: inline-flex; align-items: center; gap: 6px; padding: 7px 11px; border: 1px solid rgba(242,123,116,.4); border-radius: 10px; color: #f3b0aa; background: rgba(242,123,116,.1); font-size: 11px; font-weight: 700; white-space: nowrap; }
 .modal-lede { margin: 0 0 13px; color: var(--muted); font-size: 12px; line-height: 1.5; }
 .delay-options { display: flex; flex-direction: column; gap: 7px; }
 .delay-options button { display: flex; align-items: center; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; color: var(--gold); background: var(--card); text-align: left; }

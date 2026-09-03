@@ -213,7 +213,15 @@ When the page is hidden, closed or not controlling the tab:
 - **Data-only message** → the SDK calls `onBackgroundMessage()` in `public/firebase-messaging-sw.js`, which shows the alert with the MyNaai icon, tags it by `bookingRequestId`/`type`, keeps `BOOKING_REQUEST` on screen (`requireInteraction`) and stores the calculated destination in the notification's `data.target`.
 - **Message with a `notification` block** → the SDK displays the alert itself (wrapped as `data.FCM_MSG`) and the worker deliberately shows nothing extra, so there is exactly one notification either way.
 
-On a notification click, the worker closes the alert and navigates an existing same-origin MyNaai window (preferring a visible one) or opens a new one on the deep link, then focuses it.
+A `BOOKING_REQUEST` alert also has **Accept / Reject / Delay** action buttons, mirroring the MyNaai mobile app:
+
+- **Accept** → worker calls `POST /api/bookingRequest/owner-action/{bookingRequestId}/` with `{ "action": "ACCEPT" }`, closes the alert, then focuses the salon queue. The salon token is mirrored into IndexedDB by `src/lib/api.js` (a service worker cannot read `localStorage`), so this works even when the PWA is closed.
+- **Reject** → same as Accept with `{ "action": "REJECT" }`.
+- **Delay** → opens `#/bookingRequest?bookingRequestId=...&openDelayModal=true` (the alert stays, matching the mobile handler).
+
+Browsers cap notification actions at two (Chrome), so Accept + Reject are the visible buttons and Delay stays reachable by tapping the notification body. Every action is also always available in the booking-request screen as a fallback for browsers that do not render action buttons. Because action buttons are delivered with `showNotification`, the sender should keep booking-request messages as **data-only** (no `notification` block) unless a `webpush.fcm_options.link` is configured; with a `notification` block the SDK displays the alert and the worker defers to it, which can suppress the buttons.
+
+On a notification click, the worker closes the alert and navigates an existing same-origin MyNaai window (preferring a visible one) or opens a new one on the deep link, then focuses it. To clear an expired booking-request alert, the app posts a `MYNAAI_CLOSE_NOTIFICATION { tag }` message to the worker.
 
 The destination is a normal URL with a hash route, so a cold-start click works without native navigation APIs:
 

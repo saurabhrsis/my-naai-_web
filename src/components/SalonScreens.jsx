@@ -12,6 +12,7 @@ import {
   Edit3,
   History,
   ImagePlus,
+  Info,
   MapPin,
   Maximize2,
   Minimize2,
@@ -31,6 +32,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { api, getFileUrl } from '../lib/api';
+import { closeNotification } from '../lib/push';
 import { DEFAULT_SERVICES } from '../lib/defaultServices';
 import { normalizePlanDetails } from '../lib/planDetails';
 import { STATE_OPTIONS } from '../lib/stateOptions';
@@ -818,15 +820,81 @@ export function BookingRequestScreen({ params, navigate, notify }) {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState('');
   const [delayOpen, setDelayOpen] = useState(params?.openDelayModal === true || params?.openDelayModal === 'true');
-  useEffect(() => {
-    if (!params?.bookingRequestId) {
+  const [deadline, setDeadline] = useState(0);
+  const [now, setNow] = useState(Date.now());
+  const [expired, setExpired] = useState(false);
+  const bookingRequestId = params?.bookingRequestId || '';
+  // The mobile app shows a 60-second countdown on a booking-request notification
+  // and auto-cancels it after 70s. Mirror that timer here (the web Notification
+  // API cannot render a live chronometer).
+  const DURATION_MS = 60000;
+
+  const loadRequest = useCallback(() => {
+    if (!bookingRequestId) {
       setLoading(false);
       return undefined;
     }
-    api.getBookingRequestById(params.bookingRequestId).then(response => setDetails(response?.data)).catch(error => notify?.('error', getErrorMessage(error, 'Unable to load booking request.'))).finally(() => setLoading(false));
-    return undefined;
-  }, [notify, params?.bookingRequestId]);
-  const action = async (value, delayMinutes) => { setActionLoading(value); try { const response = value === 'DELAY' ? await api.salonDelayBooking(params.bookingRequestId, delayMinutes) : await api.bookingRequestOwnerAction(params.bookingRequestId, { action: value }); if (response?.status && response.status !== 'SUCCESS') throw new Error(response.message || 'Could not update request'); notify?.('success', value === 'ACCEPT' ? 'Booking accepted.' : value === 'REJECT' ? 'Booking rejected.' : `Customer notified about a ${delayMinutes}-minute delay.`); setDelayOpen(false); navigate('queue'); } catch (error) { notify?.('error', getErrorMessage(error, 'Could not update booking request.')); } finally { setActionLoading(''); } };
+    setLoading(true);
+    return api.getBookingRequestById(bookingRequestId)
+      .then(response => {
+        setDetails(response?.data);
+        const created = response?.data?.createdAt || response?.data?.bookingRequestTime || response?.data?.createdAtTimestamp;
+        const createdMs = created ? new Date(created).getTime() : Date.now();
+        const base = Number.isFinite(createdMs) && createdMs > 0 ? createdMs : Date.now();
+        setDeadline(base + DURATION_MS);
+      })
+      .catch(error => notify?.('error', getErrorMessage(error, 'Unable to load booking request.')))
+      .finally(() => setLoading(false));
+  }, [bookingRequestId, notify]);
+
+  useEffect(() => { loadRequest(); }, [loadRequest]);
+
+  // Countdown ticking + expiry handling. Expiry is a one-time transition: it
+  // closes the browser notification (mobile auto-cancels after 70s) and flips
+  // the card to expired; the user taps Refresh to re-check the server state.
+  useEffect(() => {
+    if (!deadline) return undefined;
+    const tick = () => {
+      const remaining = deadline - Date.now();
+      setNow(Date.now());
+      if (remaining <= 0) {
+        setExpired(true);
+        if (bookingRequestId) closeNotification(bookingRequestId);
+      }
+    };
+    const timer = window.setInterval(tick, 1000);
+    tick();
+    return () => window.clearInterval(timer);
+  }, [bookingRequestId, deadline]);
+
+  const remaining = deadline ? Math.max(0, deadline - now) : 0;
+  const remainingSeconds = Math.ceil(remaining / 1000);
+  const minutes = Math.floor(remainingSeconds / 60);
+  const seconds = remainingSeconds % 60;
+  const countdownLabel = `${minutes}:${String(seconds).padStart(2, '0')}`;
+  const timerActive = deadline && !expired && remaining > 0;
+  const timerWarning = timerActive && remaining <= 15000;
+
+  const action = async (value, delayMinutes) => {
+    setActionLoading(value);
+    try {
+      const response = value === 'DELAY'
+        ? await api.salonDelayBooking(bookingRequestId, delayMinutes)
+        : await api.bookingRequestOwnerAction(bookingRequestId, { action: value });
+      if (response?.status && response.status !== 'SUCCESS') throw new Error(response.message || 'Could not update request');
+      notify?.('success', value === 'ACCEPT' ? 'Booking accepted.' : value === 'REJECT' ? 'Booking rejected.' : `Customer notified about a ${delayMinutes}-minute delay.`);
+      setDelayOpen(false);
+      closeNotification(bookingRequestId);
+      navigate('queue');
+    } catch (error) {
+      notify?.('error', getErrorMessage(error, 'Could not update booking request.'));
+    } finally {
+      setActionLoading('');
+    }
+  };
+
+  const refresh = () => { setExpired(false); setDeadline(0); loadRequest(); };
+
   if (loading) return <div className="screen"><PageHeader title="Booking request" onBack={() => navigate(-1)} /><div className="account-loading"><Spinner label="Loading request…" /></div></div>;
-  return <div className="screen booking-request-screen"><PageHeader title="New booking request" subtitle="A customer is waiting for your response." onBack={() => navigate('queue')} /><div className="request-card"><div className="request-card-top"><div className="request-avatar">{getInitials(details?.customerName || 'Guest')}</div><div><span className="eyebrow">CUSTOMER</span><h2>{details?.customerName || 'Guest'}</h2><span className="request-status"><i /> Needs your response</span></div></div><div className="request-detail-grid"><div><CalendarDays size={17} /><span><small>Selected date</small><strong>{formatDate(details?.bookingDate)}</strong></span></div><div><Clock3 size={17} /><span><small>Time slot</small><strong>{details?.startTime || '—'} – {details?.endTime || '—'}</strong></span></div><div><Scissors size={17} /><span><small>Services</small><strong>{details?.services || 'Salon service'}</strong></span></div></div></div><div className="request-actions"><div><Button variant="success" loading={actionLoading === 'ACCEPT'} onClick={() => action('ACCEPT')}>Accept <Check size={17} /></Button><Button variant="danger" loading={actionLoading === 'REJECT'} onClick={() => action('REJECT')}>Reject <X size={17} /></Button></div><Button variant="warning" loading={actionLoading === 'DELAY'} onClick={() => setDelayOpen(true)}>Update time <Clock3 size={17} /></Button></div><Modal open={delayOpen} onClose={() => setDelayOpen(false)} title="Update time & notify customer"><p className="modal-lede">If you are running a little late, choose 10 or 20 minutes. MyNaai will send the customer a delay request so they can accept or decline the updated time.</p><div className="delay-options">{[10, 20].map(minutes => <button key={minutes} onClick={() => action('DELAY', minutes)} disabled={Boolean(actionLoading)}><Clock3 size={17} /><span><strong>+{minutes} minutes</strong><small>Send delay request to customer</small></span><ChevronRight size={16} /></button>)}</div></Modal></div>;
+  return <div className="screen booking-request-screen"><PageHeader title="New booking request" subtitle="A customer is waiting for your response." onBack={() => navigate('queue')} /><div className="request-card"><div className="request-card-top"><div className="request-avatar">{getInitials(details?.customerName || 'Guest')}</div><div><span className="eyebrow">CUSTOMER</span><h2>{details?.customerName || 'Guest'}</h2><span className="request-status"><i /> {expired ? 'Response window closed' : 'Needs your response'}</span></div><div className={cx('request-timer', timerWarning && 'timer-warning')}><small>{expired ? 'Expired' : timerActive ? `Respond in` : '—'}</small>{timerActive && <strong>{countdownLabel}</strong>}</div></div><div className="request-detail-grid"><div><CalendarDays size={17} /><span><small>Selected date</small><strong>{formatDate(details?.bookingDate)}</strong></span></div><div><Clock3 size={17} /><span><small>Time slot</small><strong>{details?.startTime || '—'} – {details?.endTime || '—'}</strong></span></div><div><Scissors size={17} /><span><small>Services</small><strong>{details?.services || 'Salon service'}</strong></span></div></div></div>{expired && <div className="request-expired-note"><Info size={16} /><p>The 60-second response window has closed. This request may have been released to another customer — refresh to check its current status.</p><button onClick={refresh}><RefreshCw size={15} /> Refresh</button></div>}<div className="request-actions">{!expired && <div><Button variant="success" loading={actionLoading === 'ACCEPT'} onClick={() => action('ACCEPT')}>Accept <Check size={17} /></Button><Button variant="danger" loading={actionLoading === 'REJECT'} onClick={() => action('REJECT')}>Reject <X size={17} /></Button></div>}{!expired && <Button variant="warning" loading={actionLoading === 'DELAY'} onClick={() => setDelayOpen(true)}>Update time <Clock3 size={17} /></Button>}</div><Modal open={delayOpen} onClose={() => setDelayOpen(false)} title="Update time & notify customer"><p className="modal-lede">If you are running a little late, choose a delay. MyNaai will send the customer a delay request so they can accept or decline the updated time.</p><div className="delay-options">{[20, 40, 60].map(minutes => <button key={minutes} onClick={() => action('DELAY', minutes)} disabled={Boolean(actionLoading)}><Clock3 size={17} /><span><strong>+{minutes} minutes</strong><small>Send delay request to customer</small></span><ChevronRight size={16} /></button>)}</div></Modal></div>;
 }

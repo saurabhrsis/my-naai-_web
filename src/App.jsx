@@ -20,7 +20,7 @@ import {
   X,
 } from 'lucide-react';
 import { api, clearSession, getToken, setToken } from './lib/api';
-import { deletePushToken, displayNotification, getNotificationRoute, getPushStatus, getPushToken, isActionableNotification, normalizePushPayload, recordForegroundMessage, setupPush } from './lib/push';
+import { closeNotification, deletePushToken, displayNotification, getNotificationRoute, getPushStatus, getPushToken, isActionableNotification, normalizePushPayload, recordForegroundMessage, setupPush } from './lib/push';
 import { playBuzzer, unlockBuzzer } from './lib/buzzer';
 import { resetLiveUpdatesSocket } from './lib/socket';
 import { DEFAULT_SERVICES } from './lib/defaultServices';

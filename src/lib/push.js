@@ -146,6 +146,23 @@ export async function getPushToken({ requestPermission = false } = {}) {
   }
 }
 
+// Booking-request notifications expose Accept / Reject / Delay action buttons,
+// mirroring the MyNaai mobile app. Browsers cap action buttons at two (Chrome),
+// so Accept + Reject are guaranteed and Delay stays reachable by tapping the
+// body or in the request screen itself; every action is also handled by the
+// service worker so it works when the app is closed.
+function supportsActions() {
+  return typeof window !== 'undefined' && 'Notification' in window && 'actions' in Notification.prototype;
+}
+
+export function bookingRequestActions() {
+  return [
+    { action: 'ACCEPT_BOOKING', title: 'Accept' },
+    { action: 'REJECT_BOOKING', title: 'Reject' },
+    { action: 'DELAY_BOOKING', title: 'Delay' },
+  ];
+}
+
 // FCM delivers foreground web messages to the page instead of the OS, so the
 // app has to render them. Showing them through the messaging service worker
 // keeps the notificationclick deep-link routing in one place.
@@ -161,6 +178,9 @@ export async function displayNotification({ title, body, data = {} } = {}) {
     requireInteraction: type === 'BOOKING_REQUEST' || type === 'DELAY_TIME_PROPOSAL',
     // Buzzer-style vibration for time-critical alerts (Android browsers).
     vibrate: type === 'BOOKING_REQUEST' || type === 'DELAY_TIME_PROPOSAL' ? [260, 120, 260, 120, 520] : undefined,
+    // Accept / Reject / Delay action buttons on booking requests (when the
+    // browser supports notification actions).
+    actions: type === 'BOOKING_REQUEST' && supportsActions() ? bookingRequestActions() : undefined,
   };
   try {
     const registration = await getPushServiceWorker();
@@ -305,6 +325,20 @@ export async function setupPush({ onMessage: handleMessage } = {}) {
   const token = await getPushToken({ requestPermission: false });
   const unsubscribe = handleMessage ? onMessage(messaging, handleMessage) : () => {};
   return { token, unsubscribe };
+}
+
+// Ask the messaging service worker to close a notification by tag. Used by the
+// booking request screen once its countdown expires (mirrors the mobile app's
+// 70-second auto-cancel).
+export async function closeNotification(tag) {
+  if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
+  try {
+    const registration = await getPushServiceWorker();
+    const worker = registration?.active || registration?.waiting || registration?.installing;
+    if (worker) worker.postMessage({ type: 'MYNAAI_CLOSE_NOTIFICATION', tag: String(tag || '') });
+  } catch (error) {
+    console.debug(getErrorMessage(error, 'Could not close the notification.'));
+  }
 }
 
 export async function deletePushToken() {

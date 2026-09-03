@@ -144,10 +144,11 @@ The public Razorpay key is read from `VITE_RAZORPAY_KEY_ID` (with the mobile app
 
 ## 7. Salon time update and customer notification
 
-When a salon cannot start a booking at the selected time, the salon can open the booking request and choose **Update time**. The web flow offers:
+When a salon cannot start a booking at the selected time, the salon can open the booking request and choose **Update time**. The web flow offers the same delay options as the mobile app:
 
-- **+10 minutes**
 - **+20 minutes**
+- **+40 minutes**
+- **+60 minutes**
 
 The salon sees that the customer will receive a delay request. Selecting an option calls the mobile-compatible endpoint:
 
@@ -185,6 +186,12 @@ The notification route mapping is shared by foreground JavaScript and the Fireba
 | `DELAY_BOOKING` | `#/bookingRequest?bookingRequestId=...&openDelayModal=true` | Salon |
 
 Foreground messages are rendered by the app itself (browser notification + in-app toast) and only time-critical types auto-navigate, so an informational message cannot pull a customer out of the booking flow; see [FIREBASE-WEB-PUSH.md](./FIREBASE-WEB-PUSH.md#foreground-delivery).
+
+### Booking-request action buttons & response timer
+
+A `BOOKING_REQUEST` notification carries the mobile app's **Accept / Reject / Delay** action buttons. `firebase-messaging-sw.js` handles them in `notificationclick`: Accept and Reject call `POST /api/bookingRequest/owner-action/{bookingRequestId}/` directly from the worker (the salon token is mirrored into IndexedDB by `src/lib/api.js`, so this works even when the PWA is closed) and then close the alert; Delay opens `#/bookingRequest?bookingRequestId=...&openDelayModal=true`. Browsers cap notification actions at two (Chrome), so Accept + Reject are the visible buttons while Delay stays reachable by tapping the notification body — and every action is always available in the booking-request screen as a fallback for browsers that do not render action buttons.
+
+The mobile app shows a 60-second countdown on a booking-request alert and auto-cancels it after 70 seconds. The web Notification API cannot render a live chronometer, so the countdown is mirrored in the **Booking request** screen («Respond in m:ss», red in the final 15 seconds). When the timer expires, the app asks the worker (via a `MYNAAI_CLOSE_NOTIFICATION` message) to clear the matching notification and re-checks the request status.
 
 Hash query parameters are parsed by `App.jsx`, so a notification click remains actionable after a cold start or browser restart. See [FIREBASE-WEB-PUSH.md](./FIREBASE-WEB-PUSH.md) for Firebase setup and payload details.
 
