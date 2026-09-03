@@ -11,6 +11,14 @@ npm run dev
 
 Build a production bundle with `npm run build` and serve the generated `dist` directory from a host that supports SPA fallbacks and HTTPS for installable PWA behaviour.
 
+## Run the tests
+
+```bash
+npm test
+```
+
+A Vitest (+ jsdom) suite covers the notification routing/buzzer/token logic. The full mobile→web parity map and what was and wasn't testable here are in [`docs/TESTING-AND-PARITY.md`](docs/TESTING-AND-PARITY.md).
+
 ## Environment
 
 Create `.env.local` when pointing to another environment:
@@ -52,6 +60,9 @@ The complete portal behavior and operational notes are in [`docs/MY-NAAI-WEB-POR
 - Both Account screens carry a collapsible **Notification status** card that reports nine web-push checks (HTTPS, browser APIs, Firebase web config, permission, messaging client, service worker, push subscription, masked FCM token, last foreground message) with **Run again**, **Allow notifications** and **Copy report** for support, so "notifications are not working" is pinned to a specific layer on the device itself.
 - Salon booking requests offer +10/+20 minute time updates; the mobile-compatible owner-action API sends the delay notification to the customer.
 - Foreground push is rendered by the app (browser notification + toast) and only time-critical types auto-navigate, so an informational message cannot pull a customer out of the booking flow.
+- Time-critical alerts (a salon booking request, a delay proposal) replay the **exact MyNaai buzzer** the mobile app uses (the `buzzer` / `buzzer_old` WAV sounds in `public/assets/audio`), and pulse the device. The buzzer is decoded through the Web Audio API and unlocked + preloaded on the first user gesture because browsers block audio before an interaction; the foreground notification and the service worker also pass a best-effort `sound` URL and a `vibrate` pattern so supporting browsers can sound/vibrate the alert when the tab is hidden. **You do not need to set a `sound` field on the backend for the web buzzer** — the client owns it. When the PWA is installed and closed, browsers (especially Android Chrome) play the OS notification sound, not a custom file, so the reliable buzz is the Web Audio one that plays whenever the app is open (`src/lib/buzzer.js`).
+- **Booking-request action buttons.** A `BOOKING_REQUEST` notification carries **Accept / Reject / Delay** action buttons, mirroring the mobile app. Clicking Accept or Reject calls the owner-action API directly from the service worker (the session token is mirrored into IndexedDB by `src/lib/api.js` so it works even when the PWA is closed) and closes the alert; Delay opens the request screen with the delay modal. Browsers cap notification actions at two (Chrome), so Accept + Reject are the visible buttons and Delay stays reachable by tapping the notification body — and every action is also available in the **Booking request** screen as a fallback for browsers that do not render action buttons.
+- **Booking-request response timer.** A booking-request alert must be answered within 60 seconds, like the mobile app's Notifee chronometer. The web Notification API cannot render a live countdown, so the timer lives in the **Booking request** screen (`Respond in m:ss`), turns red in the final 15 seconds, and auto-closes the browser notification when it expires (the worker's `message` handler clears it by tag). If unsupported action buttons can't be used, the screen's Accept / Reject / Update-time buttons take over.
 - Customer discovery sends browser latitude/longitude to `userSalonList`, sorts known distances nearest-first (while keeping the API list when location is unavailable), and offers a location retry.
 - An incomplete salon login is locked to the full profile editor until the mobile-compatible `edit-salon-profile` body succeeds with valid contact, address, coordinates, hours, services and specialists. Every editor section is collapsed by default with its sub heading, live summary and a `N required` chip visible; required fields carry a red `*`; a failed save opens and scrolls to the offending section.
 - Saving a new/incomplete profile continues to the payment screen (20-day free onboarding plan first); saving a routine edit — or any profile that already has an active plan — returns to the salon account screen instead of asking for a second payment.
