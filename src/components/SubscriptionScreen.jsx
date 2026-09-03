@@ -71,7 +71,8 @@ const PAYMENT_STATE_COPY = {
 export function SubscriptionScreen({ params = {}, session, navigate, notify, onAuthComplete, onSessionUpdate }) {
   const registrationData = params.registrationData;
   const isRegistration = Boolean(registrationData);
-  const isUpgrade = Boolean(params.isUpgrade || params.mode === 'RENEW');
+  const isForcedRenewal = !isRegistration && Boolean(params.forceRenewal || params.forceRenewal === 'true');
+  const isUpgrade = Boolean(isForcedRenewal || params.isUpgrade || params.mode === 'RENEW');
   const isOnboarding = params.isOnboarding === true || params.isOnboarding === 'true';
   const showFreeOnboarding = isOnboarding && !isRegistration;
   const paidPlans = isUpgrade ? RENEWAL_PLANS : PARTNER_PLANS;
@@ -125,8 +126,16 @@ export function SubscriptionScreen({ params = {}, session, navigate, notify, onA
     if (response?.status !== 'SUCCESS') throw new Error(response?.message || 'Renewal failed.');
     clearPendingPayment();
     // Keep the cached session in step so the account screen does not flash the
-    // previous plan while it re-reads the profile.
-    onSessionUpdate?.({ planType: plan.id, profileCompleted: true }, {});
+    // previous plan while it re-reads the profile. The explicit active flag also
+    // releases the hard paywall immediately, before the profile refresh returns.
+    const returnedPlan = response?.data?.subscription || response?.data?.plan || response?.subscription || response?.plan || {};
+    onSessionUpdate?.({
+      ...returnedPlan,
+      planType: returnedPlan.planType || plan.id,
+      planStatus: 'ACTIVE',
+      subscriptionExpired: false,
+      profileCompleted: true,
+    }, {});
     setPaymentState('idle');
     notify?.('success', 'Plan renewed successfully.');
     navigate('account', {}, { replace: true });
@@ -354,14 +363,16 @@ export function SubscriptionScreen({ params = {}, session, navigate, notify, onA
     continuePlan();
   };
 
-  const handleBack = isRegistration
-    ? params.onBack
-    : isOnboarding
-      ? () => navigate('account', {}, { replace: true })
-      : () => navigate(-1);
+  const handleBack = isForcedRenewal
+    ? undefined
+    : isRegistration
+      ? params.onBack
+      : isOnboarding
+        ? () => navigate('account', {}, { replace: true })
+        : () => navigate(-1);
 
-  return <div className="screen subscription-screen"><PageHeader title={isUpgrade ? 'Renew your plan' : 'Choose your plan'} subtitle={isOnboarding ? 'Choose how you want to start your salon journey.' : isUpgrade ? 'Keep your salon visible and ready for bookings.' : 'Start building your salon presence on My Naai.'} onBack={handleBack} />
-    <div className="subscription-intro"><div className="subscription-mark"><Crown size={21} /></div><div><strong>{isOnboarding ? 'Your salon is ready for a final choice' : isUpgrade ? 'Keep the momentum going' : 'Simple plans for growing salons'}</strong><p>{isOnboarding ? 'Start with a 20-day free trial or choose a paid plan.' : 'No confusing tiers. Pick what fits your business today.'}</p></div></div>
+  return <div className={cx('screen', 'subscription-screen', isForcedRenewal && 'forced-renewal-screen')}><PageHeader title={isForcedRenewal ? 'Renew your salon subscription' : isUpgrade ? 'Renew your plan' : 'Choose your plan'} subtitle={isForcedRenewal ? 'Your subscription has expired. Renewal is required before you can use the salon portal.' : isOnboarding ? 'Choose how you want to start your salon journey.' : isUpgrade ? 'Keep your salon visible and ready for bookings.' : 'Start building your salon presence on My Naai.'} onBack={handleBack} />
+    <div className="subscription-intro"><div className="subscription-mark"><Crown size={21} /></div><div><strong>{isForcedRenewal ? 'Renewal required to continue' : isOnboarding ? 'Your salon is ready for a final choice' : isUpgrade ? 'Keep the momentum going' : 'Simple plans for growing salons'}</strong><p>{isForcedRenewal ? 'Choose a renewal plan and complete payment to unlock your queue, history, products and account.' : isOnboarding ? 'Start with a 20-day free trial or choose a paid plan.' : 'No confusing tiers. Pick what fits your business today.'}</p></div></div>
     {notice && <div className={cx('payment-notice', `notice-${notice.tone || 'info'}`)} role="status"><span className="payment-notice-mark">{notice.tone === 'error' ? <CircleAlert size={17} /> : notice.tone === 'info' ? <WalletCards size={17} /> : <CheckCircle2 size={17} />}</span><div><strong>{notice.title}</strong><p>{notice.text}</p></div><button type="button" onClick={() => setNotice(null)} aria-label="Dismiss message"><X size={15} /></button></div>}
     {recovery && <div className="payment-recovery" role="status">
       <span className="payment-notice-mark"><CircleAlert size={17} /></span>

@@ -116,6 +116,18 @@ export class ApiError extends Error {
   }
 }
 
+function isPlanExpiredPayload(data) {
+  const candidates = [
+    data?.status,
+    data?.code,
+    data?.errorCode,
+    data?.data?.status,
+    data?.data?.code,
+    data?.data?.errorCode,
+  ];
+  return candidates.some(value => String(value || '').toUpperCase() === 'PLAN_EXPIRED');
+}
+
 async function request(path, { method = 'GET', body, params, headers = {}, auth = true, signal } = {}) {
   const isFormData = typeof FormData !== 'undefined' && body instanceof FormData;
   const requestHeaders = { ...headers };
@@ -141,8 +153,8 @@ async function request(path, { method = 'GET', body, params, headers = {}, auth 
     data = text;
   }
 
-  if (data?.status === 'PLAN_EXPIRED' && typeof window !== 'undefined') {
-    window.dispatchEvent(new Event('mynaai:plan-expired'));
+  if (isPlanExpiredPayload(data) && typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('mynaai:plan-expired', { detail: data }));
   }
 
   if (!response.ok) {

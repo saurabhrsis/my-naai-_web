@@ -575,6 +575,18 @@ img { display: block; max-width: 100%; }
 .push-setup-compact .push-setup-copy p { color: #c6cbca; }
 
 /* Salon editor and subscription */
+.subscription-gate-shell { display: block; }
+.subscription-gate-content { min-height: 100svh; display: flex; flex-direction: column; justify-content: center; padding-top: clamp(24px, 8vh, 90px); padding-bottom: clamp(24px, 8vh, 90px); }
+.subscription-lock-notice { display: flex; align-items: flex-start; gap: 9px; max-width: 670px; margin: 0 0 14px; padding: 12px 13px; border: 1px solid rgba(242,123,116,.48); border-radius: 13px; color: #ffd2cd; background: rgba(242,123,116,.1); font-size: 12px; line-height: 1.5; }
+.subscription-lock-notice svg { flex: none; margin-top: 1px; color: var(--red); }
+.subscription-lock-notice span { display: flex; flex-direction: column; gap: 3px; }
+.subscription-lock-notice strong { color: #ffffff; font-size: 13px; }
+.subscription-gate-loading { width: 100%; max-width: 620px; margin: auto; padding: 30px 18px; text-align: center; }
+.subscription-gate-mark { width: 58px; height: 58px; display: flex; align-items: center; justify-content: center; margin: 0 auto 17px; border-radius: 19px; color: #111; background: var(--gold); }
+.subscription-gate-loading h1 { margin: 0; font-size: clamp(23px, 5vw, 32px); letter-spacing: -.045em; }
+.subscription-gate-loading p { margin: 9px auto 18px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.subscription-gate-loading .spinner-wrap { color: var(--gold); font-size: 12px; }
+.forced-renewal-screen .page-header { margin-bottom: 15px; }
 .profile-editor { display: flex; flex-direction: column; gap: 13px; max-width: 920px; }
 .editor-section { padding: 14px; border: 1px solid rgba(255, 255, 255, .12); border-radius: 18px; background: #1a1f1e; }
 .editor-section.needs-attention { border-color: rgba(242, 123, 116, .45); background: linear-gradient(180deg, rgba(242, 123, 116, .07), rgba(242, 123, 116, 0) 62%), #1a1f1e; }

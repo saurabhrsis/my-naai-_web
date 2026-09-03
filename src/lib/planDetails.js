@@ -30,6 +30,17 @@ function prettifyPlanId(value) {
     .replace(/\b\w/g, character => character.toUpperCase());
 }
 
+function readBoolean(sources, keys) {
+  for (const source of sources) {
+    for (const key of keys) {
+      const value = source?.[key];
+      if (typeof value === 'boolean') return value;
+      if (typeof value === 'string' && /^(true|false)$/i.test(value.trim())) return value.trim().toLowerCase() === 'true';
+    }
+  }
+  return null;
+}
+
 // Reads the active subscription out of a get-salon profile response without
 // assuming one fixed response shape. The backend has returned plan fields at
 // the salon root and nested objects on different releases, so every known
@@ -56,22 +67,39 @@ export function normalizePlanDetails(profile = {}) {
   const price = rawPrice !== '' ? Number(rawPrice) : catalog.price;
   const startDate = readString(['planStartDate', 'startDate', 'subscriptionStartDate', 'purchasedAt', 'createdAt']);
   const expiryDate = readString(['planExpiryDate', 'planExpiry', 'expiryDate', 'planEndDate', 'subscriptionEndDate', 'endDate', 'expiry', 'validTill', 'validUntil']);
-  // Status is only trusted from nested subscription objects — a salon-root
-  // `status` field describes the account, not the plan.
-  const statusSources = sources.filter(source => source !== profile);
-  const status = statusSources.reduce((found, source) => {
+
+  // A root `status` can describe the salon account, so only use explicit plan
+  // status names at the root. A generic status is safe inside subscription/plan
+  // objects, which is how the mobile API has returned it in some releases.
+  const rootStatus = readString(['planStatus', 'subscriptionStatus', 'plan_state', 'subscription_state']);
+  const nestedStatus = sources.slice(1).reduce((found, source) => {
     if (found) return found;
-    for (const key of ['planStatus', 'subscriptionStatus', 'status']) {
+    for (const key of ['planStatus', 'subscriptionStatus', 'status', 'state']) {
       const value = source?.[key];
       if (typeof value === 'string' && value.trim()) return value.trim();
     }
     return '';
   }, '');
+  const status = rootStatus || nestedStatus;
   const statusText = String(status).toUpperCase();
+
+  // Explicit flags win over the date. This matters immediately after a renewal:
+  // the cached profile may still contain yesterday's expiry date until the next
+  // profile refresh, while the renewal response already says the plan is active.
+  const explicitExpired = readBoolean(sources, ['subscriptionExpired', 'isSubscriptionExpired', 'planExpired', 'isPlanExpired']);
+  const explicitActive = readBoolean(sources, ['subscriptionActive', 'isSubscriptionActive', 'planActive', 'isPlanActive']);
   const expiryTime = expiryDate ? new Date(expiryDate).getTime() : NaN;
   const expiredByDate = Number.isFinite(expiryTime) ? expiryTime < Date.now() : null;
-  const expiredByStatus = /^(EXPIRED|INACTIVE|FALSE)$/.test(statusText) ? true : /^(ACTIVE|TRUE)$/.test(statusText) ? false : null;
-  const expired = expiredByDate ?? expiredByStatus;
+  const expiredByStatus = /EXPIRED|INACTIVE|SUSPENDED|CANCELLED|FALSE/.test(statusText)
+    ? true
+    : /ACTIVE|VALID|CURRENT|TRUE/.test(statusText)
+      ? false
+      : null;
+  const expired = explicitExpired !== null
+    ? explicitExpired
+    : explicitActive !== null
+      ? !explicitActive
+      : expiredByDate ?? expiredByStatus;
   const daysLeft = Number.isFinite(expiryTime) ? Math.ceil((expiryTime - Date.now()) / 86400000) : null;
   return {
     planType,
@@ -83,5 +111,15 @@ export function normalizePlanDetails(profile = {}) {
     daysLeft,
     expired,
     isActive: expired === null ? true : !expired,
+  };
+}
+
+export function getSubscriptionState(profile = {}) {
+  const plan = normalizePlanDetails(profile);
+  return {
+    plan,
+    known: Boolean(plan && plan.expired !== null),
+    expired: plan?.expired === true,
+    active: plan?.expired === false,
   };
 }

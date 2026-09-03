@@ -24,6 +24,7 @@ import { closeNotification, deletePushToken, displayNotification, getNotificatio
 import { playBuzzer, unlockBuzzer } from './lib/buzzer';
 import { resetLiveUpdatesSocket } from './lib/socket';
 import { DEFAULT_SERVICES } from './lib/defaultServices';
+import { getSubscriptionState } from './lib/planDetails';
 import { STATE_OPTIONS } from './lib/stateOptions';
 import {
   AccountScreen,
@@ -47,7 +48,7 @@ import {
 } from './components/SalonScreens';
 import { SubscriptionScreen } from './components/SubscriptionScreen';
 import { SALON_ABOUT_CONTENT, SALON_FAQ_CONTENT, SALON_TERMS_CONTENT } from './lib/salonContent';
-import { Button, Field, SelectField, getBrowserLocation, getErrorMessage, cx } from './components/Shared';
+import { Button, Field, SelectField, Spinner, getBrowserLocation, getErrorMessage, cx } from './components/Shared';
 
 const USER_NAV = [
   { name: 'home', label: 'Discover', icon: Scissors },
@@ -108,6 +109,20 @@ function flagIsFalse(value) {
 
 function hasCoordinate(value) {
   return value !== '' && value !== null && value !== undefined && Number.isFinite(Number(value));
+}
+
+function getSalonSubscriptionProfile(session = {}) {
+  const user = session.user || {};
+  return { ...user, ...(user.salon || {}) };
+}
+
+function getSalonSubscriptionState(session = {}) {
+  return getSubscriptionState(getSalonSubscriptionProfile(session));
+}
+
+function isPlanExpiredResponse(result) {
+  const candidates = [result?.status, result?.code, result?.errorCode, result?.data?.status, result?.data?.code, result?.data?.errorCode];
+  return candidates.some(value => String(value || '').toUpperCase() === 'PLAN_EXPIRED');
 }
 
 function isUnknownSalonResponse(result) {
@@ -220,12 +235,26 @@ export default function App() {
           ...(profileData.profileCompleted === undefined && response?.profileCompleted !== undefined ? { profileCompleted: response.profileCompleted } : {}),
           ...(profileData.isNewSalon === undefined && response?.isNewSalon !== undefined ? { isNewSalon: response.isNewSalon } : {}),
         };
-        if (salonNeedsProfileCompletion(fetchedProfile)) {
-          resolvedSession = { ...nextSession, isNewSalon: true, user: { ...(nextSession.user || {}), ...fetchedProfile } };
-        }
+        const planState = getSubscriptionState(fetchedProfile);
+        const profilePatch = {
+          ...(nextSession.user || {}),
+          ...fetchedProfile,
+          ...(planState.expired ? { subscriptionExpired: true } : {}),
+        };
+        resolvedSession = {
+          ...nextSession,
+          user: profilePatch,
+          ...(planState.expired ? { subscriptionExpired: true } : {}),
+          ...(salonNeedsProfileCompletion(fetchedProfile) ? { isNewSalon: true } : {}),
+        };
       } catch (profileError) {
         console.debug(getErrorMessage(profileError, 'Could not preflight salon profile completion.'));
-        resolvedSession = { ...nextSession, isNewSalon: true };
+        // A plan-expired response is authoritative even when the profile call
+        // is rejected. Preserve the existing safe onboarding fallback for any
+        // other profile error so an incomplete salon cannot reach the dashboard.
+        resolvedSession = isPlanExpiredResponse(profileError)
+          ? { ...nextSession, subscriptionExpired: true, user: { ...(nextSession.user || {}), subscriptionExpired: true } }
+          : { ...nextSession, isNewSalon: true };
       }
     }
     const stored = saveSession(resolvedSession);
@@ -290,15 +319,10 @@ export default function App() {
   }, []);
   useEffect(() => {
     if (session?.role !== 'SALON') return undefined;
-    const onPlanExpired = () => {
-      const next = { name: 'subscription', params: { mode: 'RENEW' } };
-      setRoute(next);
-      window.history.pushState({}, '', '#/subscription?mode=RENEW');
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    };
+    const onPlanExpired = () => forceSalonRenewal();
     window.addEventListener('mynaai:plan-expired', onPlanExpired);
     return () => window.removeEventListener('mynaai:plan-expired', onPlanExpired);
-  }, [session?.role]);
+  }, [forceSalonRenewal, session?.role]);
   const install = async () => {
     const promptEvent = installPrompt;
     if (!promptEvent) return;
@@ -493,8 +517,94 @@ function AppShell({ session, route, navigate, onLogout, onSessionUpdate, notifyI
   const showBottomNav = primaryRoutes.includes(route.name);
   const [toast, setToast] = useState(null);
   const notify = useCallback((type, message) => { setToast({ type, message }); window.clearTimeout(notify.timer); notify.timer = window.setTimeout(() => setToast(null), 4000); }, []);
+  const cachedSubscription = useMemo(() => getSalonSubscriptionState(session), [session]);
+  const [subscriptionGate, setSubscriptionGate] = useState(() => {
+    if (!isSalon || session.isNewSalon) return 'active';
+    // Even a cached active plan is revalidated before a partner screen mounts;
+    // expiry can happen while the portal is closed.
+    return cachedSubscription.expired ? 'locked' : 'checking';
+  });
   const routeName = useRef(route.name);
   useEffect(() => { routeName.current = route.name; }, [route.name]);
+
+  // A salon subscription is checked before any partner screen is mounted. This
+  // prevents a stale queue/account route from flashing or being usable while the
+  // server already considers the plan expired. Customer sessions never enter
+  // this gate.
+  useEffect(() => {
+    if (!isSalon || session.isNewSalon) {
+      setSubscriptionGate('active');
+      return undefined;
+    }
+    const cached = getSalonSubscriptionState(session);
+    if (cached.expired) {
+      setSubscriptionGate('locked');
+      return undefined;
+    }
+
+    let cancelled = false;
+    let expiryTimer;
+    setSubscriptionGate('checking');
+    const scheduleExpiry = plan => {
+      const expiryTime = plan?.expiryDate ? new Date(plan.expiryDate).getTime() : NaN;
+      if (!Number.isFinite(expiryTime)) return;
+      const delay = expiryTime - Date.now();
+      if (delay <= 0) {
+        setSubscriptionGate('locked');
+        return;
+      }
+      expiryTimer = window.setTimeout(() => {
+        if (!cancelled) setSubscriptionGate('locked');
+      }, delay + 1);
+    };
+
+    api.salonProfile({ salonId: session.userId })
+      .then(response => {
+        if (cancelled) return;
+        if (isPlanExpiredResponse(response)) {
+          setSubscriptionGate('locked');
+          return;
+        }
+        const profile = response?.data?.salon || response?.data || {};
+        const state = getSubscriptionState(profile);
+        if (state.expired) {
+          setSubscriptionGate('locked');
+          return;
+        }
+        scheduleExpiry(state.plan);
+        // A profile without subscription fields is treated as unknown rather
+        // than expired. The API remains the source of truth for restricted
+        // actions and will emit PLAN_EXPIRED if the account is actually blocked.
+        setSubscriptionGate('active');
+      })
+      .catch(error => {
+        if (cancelled) return;
+        setSubscriptionGate(isPlanExpiredResponse(error) ? 'locked' : 'active');
+      });
+
+    return () => {
+      cancelled = true;
+      if (expiryTimer) window.clearTimeout(expiryTimer);
+    };
+  }, [isSalon, session.isNewSalon, session.userId]);
+
+  // A server-side PLAN_EXPIRED response can arrive after the initial check (for
+  // example exactly at midnight). It is a hard redirect, not a dismissible
+  // warning, and the renewal screen is the only salon view left mounted.
+  const forceSalonRenewal = useCallback(() => {
+    setSubscriptionGate('locked');
+    if (route.name !== 'subscription' || route.params?.mode !== 'RENEW' || !flagIsTrue(route.params?.forceRenewal)) {
+      navigate('subscription', { mode: 'RENEW', forceRenewal: true }, { replace: true });
+    }
+  }, [navigate, route.name, route.params]);
+
+  useEffect(() => {
+    if (!isSalon || subscriptionGate !== 'locked') return;
+    if (route.name !== 'subscription' || route.params?.mode !== 'RENEW' || !flagIsTrue(route.params?.forceRenewal)) {
+      navigate('subscription', { mode: 'RENEW', forceRenewal: true }, { replace: true });
+    }
+  }, [isSalon, navigate, route.name, route.params, subscriptionGate]);
+
   // Foreground web push: FCM hands these messages to the page instead of the OS,
   // so My Naai renders the notification itself, toasts it, and only auto-navigates
   // for time-critical actions (a salon booking request, a delay proposal). An
@@ -527,8 +637,23 @@ function AppShell({ session, route, navigate, onLogout, onSessionUpdate, notifyI
     });
     return () => { cancelled = true; unsubscribe(); };
   }, [navigate, notify, session.role, session.userId]);
+
+  const handleSessionUpdate = useCallback((user = {}, sessionPatch = {}) => {
+    onSessionUpdate?.(user, sessionPatch);
+    if (!isSalon) return;
+    const nextProfile = { ...getSalonSubscriptionProfile(session), ...(user || {}) };
+    const explicitlyExpired = flagIsTrue(user?.subscriptionExpired) || flagIsTrue(sessionPatch?.subscriptionExpired);
+    const explicitlyActive = flagIsFalse(user?.subscriptionExpired) || flagIsFalse(sessionPatch?.subscriptionExpired);
+    const nextState = getSubscriptionState(nextProfile);
+    if (explicitlyExpired || nextState.expired) setSubscriptionGate('locked');
+    else if (explicitlyActive || nextState.active) setSubscriptionGate('active');
+  }, [isSalon, onSessionUpdate, session]);
+
+  const isSubscriptionLocked = isSalon && subscriptionGate === 'locked';
+  const isCheckingSubscription = isSalon && !session.isNewSalon && subscriptionGate === 'checking';
+  const isSubscriptionGateScreen = isSubscriptionLocked || isCheckingSubscription;
   const render = () => {
-    const props = { session, navigate, notify, onSessionUpdate };
+    const props = { session, navigate, notify, onSessionUpdate: handleSessionUpdate };
     if (isSalon && session.isNewSalon && route.name !== 'editProfile') return <EditSalonProfileScreen {...props} params={{ ...(route.params || {}), isOnboarding: 'true' }} />;
     if (!isSalon) {
       if (route.name === 'home') return <HomeScreen {...props} />;
@@ -556,7 +681,28 @@ function AppShell({ session, route, navigate, onLogout, onSessionUpdate, notifyI
     if (route.name === 'salonTerms') return <PartnerInfo type="terms" navigate={navigate} />;
     return <SalonQueueScreen {...props} />;
   };
-  return <div className={cx('app-shell', isSalon && 'salon-shell', !showBottomNav && 'utility-shell')}><Sidebar session={session} nav={nav} route={route} navigate={navigate} onLogout={onLogout} notifyInstall={notifyInstall} /><main className="workspace"><div className="mobile-shell-bar"><Brand /><button className="mobile-menu-button" aria-label="Open menu"><Menu size={20} /></button></div><div className={cx('workspace-content', utilityRoutes.includes(route.name) && 'utility-content')}>{route.name === 'account' && <NotificationSetupCard notifyInstall={notifyInstall} />}{render()}</div></main>{showBottomNav && <MobileNav nav={nav} route={route} navigate={navigate} />}{toast && <div className="toast-position"><div className={cx('toast', `toast-${toast.type || 'info'}`)} role="status"><span className="toast-mark">{toast.type === 'error' ? '!' : '✓'}</span><span>{toast.message}</span><button onClick={() => setToast(null)} aria-label="Dismiss"><X size={15} /></button></div></div>}</div>;
+  const gateContent = isSubscriptionLocked
+    ? <SubscriptionScreen {...{ session, navigate, notify }} params={{ mode: 'RENEW', forceRenewal: true }} onSessionUpdate={handleSessionUpdate} />
+    : isCheckingSubscription
+      ? <SubscriptionGateLoading />
+      : render();
+  return <div className={cx('app-shell', isSalon && 'salon-shell', isSubscriptionGateScreen && 'subscription-gate-shell', !showBottomNav && 'utility-shell')}>
+    {!isSubscriptionGateScreen && <Sidebar session={session} nav={nav} route={route} navigate={navigate} onLogout={onLogout} notifyInstall={notifyInstall} />}
+    <main className="workspace">
+      {!isSubscriptionGateScreen && <div className="mobile-shell-bar"><Brand /><button className="mobile-menu-button" aria-label="Open menu"><Menu size={20} /></button></div>}
+      <div className={cx('workspace-content', (isSubscriptionGateScreen || utilityRoutes.includes(route.name)) && 'utility-content', isSubscriptionGateScreen && 'subscription-gate-content')}>
+        {isSubscriptionLocked && <div className="subscription-lock-notice" role="alert"><CircleAlert size={17} /><span><strong>Your salon subscription has expired.</strong> Renew now to unlock your salon dashboard. Customers do not make payments here.</span></div>}
+        {!isSubscriptionGateScreen && route.name === 'account' && <NotificationSetupCard notifyInstall={notifyInstall} />}
+        {gateContent}
+      </div>
+    </main>
+    {!isSubscriptionGateScreen && showBottomNav && <MobileNav nav={nav} route={route} navigate={navigate} />}
+    {toast && <div className="toast-position"><div className={cx('toast', `toast-${toast.type || 'info'}`)} role="status"><span className="toast-mark">{toast.type === 'error' ? '!' : '✓'}</span><span>{toast.message}</span><button onClick={() => setToast(null)} aria-label="Dismiss"><X size={15} /></button></div></div>}
+  </div>;
+}
+
+function SubscriptionGateLoading() {
+  return <div className="subscription-gate-loading" role="status" aria-live="polite"><div className="subscription-gate-mark"><Store size={22} /></div><h1>Checking your salon subscription</h1><p>One moment while we verify access to your salon dashboard.</p><Spinner label="Checking subscription…" /></div>;
 }
 
 function Sidebar({ session, nav, route, navigate, onLogout, notifyInstall }) {
