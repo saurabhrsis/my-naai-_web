@@ -11,6 +11,14 @@ npm run dev
 
 Build a production bundle with `npm run build` and serve the generated `dist` directory from a host that supports SPA fallbacks and HTTPS for installable PWA behaviour.
 
+## Run the tests
+
+```bash
+npm test
+```
+
+A Vitest (+ jsdom) suite covers the notification routing/buzzer/token logic. The full mobile→web parity map and what was and wasn't testable here are in [`docs/TESTING-AND-PARITY.md`](docs/TESTING-AND-PARITY.md).
+
 ## Environment
 
 Create `.env.local` when pointing to another environment:
