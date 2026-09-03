@@ -1,4 +1,4 @@
-// Shared live-update socket for the MyNaai web portal.
+// Shared live-update socket for the My Naai web portal.
 //
 // The salon queue screen and the customer bookings screen used to each open
 // their own socket.io connection with `transports: ['websocket']` and disconnect

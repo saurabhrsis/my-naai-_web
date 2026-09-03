@@ -186,7 +186,7 @@ export function openRazorpayCheckout({
   orderId,
   amount,
   currency = 'INR',
-  name = 'MyNaai',
+  name = 'My Naai',
   description = 'Salon partner subscription',
   image = '',
   themeColor = '#e8b97e',

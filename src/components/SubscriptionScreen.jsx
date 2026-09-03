@@ -65,7 +65,7 @@ const PAYMENT_STATE_COPY = {
   'in-checkout': { title: 'Payment sheet open', text: 'Complete the payment in the Razorpay window.' },
   'app-switched': { title: 'Waiting for your payment app…', text: 'Finish the payment in Google Pay, PhonePe, Paytm or BHIM, then return to this page.' },
   confirming: { title: 'Confirming your payment…', text: 'Welcome back. We are checking the payment status with the bank — please do not pay again.' },
-  activating: { title: 'Activating your plan…', text: 'Payment received. MyNaai is updating your subscription now.' },
+  activating: { title: 'Activating your plan…', text: 'Payment received. My Naai is updating your subscription now.' },
 };
 
 export function SubscriptionScreen({ params = {}, session, navigate, notify, onAuthComplete, onSessionUpdate }) {
@@ -195,7 +195,7 @@ export function SubscriptionScreen({ params = {}, session, navigate, notify, onA
       key: getRazorpayKey(),
       orderId: order.id,
       amount: orderAmountInPaise(order, plan.price),
-      description: `${plan.title} · MyNaai salon partner subscription`,
+      description: `${plan.title} · My Naai salon partner subscription`,
       image: CHECKOUT_IMAGE,
       themeColor: GOLD,
       prefill: {
@@ -251,7 +251,7 @@ export function SubscriptionScreen({ params = {}, session, navigate, notify, onA
     clearPendingPayment();
     localStorage.setItem('isNewSalon', 'false');
     onSessionUpdate?.({}, { isNewSalon: false });
-    notify?.('success', 'Your free trial is ready. Welcome to MyNaai.');
+    notify?.('success', 'Your free trial is ready. Welcome to My Naai.');
     navigate('queue', {}, { replace: true });
   }, [navigate, notify, onSessionUpdate]);
 
@@ -285,7 +285,7 @@ export function SubscriptionScreen({ params = {}, session, navigate, notify, onA
       clearRedirectedPaymentParams();
       if (pending && (!returned.orderId || returned.orderId === pending.orderId)) {
         setRecovery(null);
-        setNotice({ tone: 'info', title: 'Confirming your payment', text: 'Your payment app sent the result back to MyNaai. Activating your plan…' });
+        setNotice({ tone: 'info', title: 'Confirming your payment', text: 'Your payment app sent the result back to My Naai. Activating your plan…' });
         completeRedirectedPayment(pending, returned);
         return;
       }
@@ -360,16 +360,16 @@ export function SubscriptionScreen({ params = {}, session, navigate, notify, onA
       ? () => navigate('account', {}, { replace: true })
       : () => navigate(-1);
 
-  return <div className="screen subscription-screen"><PageHeader title={isUpgrade ? 'Renew your plan' : 'Choose your plan'} subtitle={isOnboarding ? 'Choose how you want to start your salon journey.' : isUpgrade ? 'Keep your salon visible and ready for bookings.' : 'Start building your salon presence on MyNaai.'} onBack={handleBack} />
+  return <div className="screen subscription-screen"><PageHeader title={isUpgrade ? 'Renew your plan' : 'Choose your plan'} subtitle={isOnboarding ? 'Choose how you want to start your salon journey.' : isUpgrade ? 'Keep your salon visible and ready for bookings.' : 'Start building your salon presence on My Naai.'} onBack={handleBack} />
     <div className="subscription-intro"><div className="subscription-mark"><Crown size={21} /></div><div><strong>{isOnboarding ? 'Your salon is ready for a final choice' : isUpgrade ? 'Keep the momentum going' : 'Simple plans for growing salons'}</strong><p>{isOnboarding ? 'Start with a 20-day free trial or choose a paid plan.' : 'No confusing tiers. Pick what fits your business today.'}</p></div></div>
     {notice && <div className={cx('payment-notice', `notice-${notice.tone || 'info'}`)} role="status"><span className="payment-notice-mark">{notice.tone === 'error' ? <CircleAlert size={17} /> : notice.tone === 'info' ? <WalletCards size={17} /> : <CheckCircle2 size={17} />}</span><div><strong>{notice.title}</strong><p>{notice.text}</p></div><button type="button" onClick={() => setNotice(null)} aria-label="Dismiss message"><X size={15} /></button></div>}
     {recovery && <div className="payment-recovery" role="status">
       <span className="payment-notice-mark"><CircleAlert size={17} /></span>
       <div>
         <strong>{recovery.stage === 'activation-failed' ? 'Payment received, plan not activated' : 'We could not confirm your last payment'}</strong>
-        {recovery.stage === 'activation-failed' ? <p>Razorpay confirmed payment {recovery.paymentId || ''} for order {recovery.orderId || '—'}, but MyNaai could not activate the plan. Do not pay again — call {SUPPORT_PHONE} with these details and we will activate or refund it.</p> : <p>{recovery.flow === 'register'
-          ? `Your ${recovery.planTitle || 'plan'} payment for order ${recovery.orderId || '—'} was interrupted before MyNaai could finish registering the salon.`
-          : `Your ${recovery.planTitle || 'plan'} renewal for order ${recovery.orderId || '—'} was interrupted before MyNaai could activate it.`}
+        {recovery.stage === 'activation-failed' ? <p>Razorpay confirmed payment {recovery.paymentId || ''} for order {recovery.orderId || '—'}, but My Naai could not activate the plan. Do not pay again — call {SUPPORT_PHONE} with these details and we will activate or refund it.</p> : <p>{recovery.flow === 'register'
+          ? `Your ${recovery.planTitle || 'plan'} payment for order ${recovery.orderId || '—'} was interrupted before My Naai could finish registering the salon.`
+          : `Your ${recovery.planTitle || 'plan'} renewal for order ${recovery.orderId || '—'} was interrupted before My Naai could activate it.`}
           {recovery.flow === 'register'
             ? ' Try the payment again below — if your bank already debited the amount, call support instead of paying twice.'
             : ' Try again below, or call support with the order ID if the amount was already debited.'}</p>}
@@ -383,7 +383,7 @@ export function SubscriptionScreen({ params = {}, session, navigate, notify, onA
     <div className="plan-grid">{plans.map(plan => <button className={cx('plan-card', selected === plan.id && 'active')} key={plan.id} onClick={() => setSelected(plan.id)} disabled={loading}><span className="plan-card-title">{plan.title}</span><strong>{plan.displayPrice || formatCurrency(plan.price)}</strong><span className="plan-duration">{plan.duration}</span><small>{plan.note}</small><span className="plan-radio" aria-hidden="true">{selected === plan.id && <Check size={13} />}</span>{plan.best && <span className="plan-best">{plan.id === FREE_ONBOARDING_PLAN.id ? 'DEFAULT' : 'BEST VALUE'}</span>}</button>)}</div>
     <div className="plan-benefits"><span><CheckCircle2 size={16} /> Be discoverable nearby</span><span><CheckCircle2 size={16} /> Manage your live queue</span><span><CheckCircle2 size={16} /> Get booking updates</span></div>
     {stateCopy && <div className="payment-progress" role="status"><LoaderCircle className="spin" size={16} /><span><strong>{stateCopy.title}</strong><small>{stateCopy.text}</small></span></div>}
-    {isMobile && !stateCopy && <p className="payment-method-note"><Smartphone size={16} /><span>Razorpay may open your UPI app — Google Pay, PhonePe, Paytm or BHIM. Pay there, then come straight back to this page. MyNaai confirms the payment automatically, so please do not pay twice.</span></p>}
+    {isMobile && !stateCopy && <p className="payment-method-note"><Smartphone size={16} /><span>Razorpay may open your UPI app — Google Pay, PhonePe, Paytm or BHIM. Pay there, then come straight back to this page. My Naai confirms the payment automatically, so please do not pay twice.</span></p>}
     <Button className="subscription-continue" onClick={continuePlan} loading={loading} disabled={gateway.status === 'unavailable'}>{isOnboarding && selected === FREE_ONBOARDING_PLAN.id ? 'Start free trial' : isUpgrade ? 'Renew plan' : 'Continue to payment'} <ChevronRight size={17} /></Button>
     <div className={cx('gateway-status', `gateway-${gateway.status}`)}>
       {gateway.status === 'ready' ? <CheckCircle2 size={15} /> : gateway.status === 'checking' ? <LoaderCircle className="spin" size={15} /> : <CircleAlert size={15} />}

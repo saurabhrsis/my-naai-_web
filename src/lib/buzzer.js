@@ -1,7 +1,7 @@
 /*
- * MyNaai booking buzzer.
+ * My Naai booking buzzer.
  *
- * Replays the exact buzzer sound the MyNaai mobile app uses (the Notifee
+ * Replays the exact buzzer sound the My Naai mobile app uses (the Notifee
  * `buzzer` / `buzzer_old` sounds from android/app/src/main/res/raw in
  * rightserveinfotechsystems/my_naai_app) for time-critical booking notifications.
  *
@@ -109,7 +109,7 @@ export function unlockBuzzer() {
   loadBuffer(SOUNDS.default).catch(() => {});
 }
 
-// Play the real MyNaai buzzer (or a synthetic pulse if the file/stream is
+// Play the real My Naai buzzer (or a synthetic pulse if the file/stream is
 // unavailable) plus a device vibration. Returns true when a sound was started.
 export function playBuzzer({ type = '', repeats = 2 } = {}) {
   vibrate(type === 'BOOKING_REQUEST' ? [260, 120, 260, 120, 520] : [300, 140, 300, 140, 500]);

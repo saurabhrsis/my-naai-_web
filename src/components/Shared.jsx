@@ -65,7 +65,7 @@ export function formatCurrency(value) {
 }
 
 export function getInitials(value) {
-  const words = String(value || 'MyNaai').trim().split(/\s+/).filter(Boolean);
+  const words = String(value || 'My Naai').trim().split(/\s+/).filter(Boolean);
   return words.slice(0, 2).map(word => word[0]).join('').toUpperCase() || 'MN';
 }
 

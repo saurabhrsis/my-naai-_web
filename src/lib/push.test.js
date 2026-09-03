@@ -60,7 +60,7 @@ describe('normalizePushPayload', () => {
 
   it('falls back to defaults for empty payload', () => {
     const result = normalizePushPayload({});
-    expect(result.title).toBe('MyNaai update');
+    expect(result.title).toBe('My Naai update');
     expect(result.type).toBe('');
   });
 
