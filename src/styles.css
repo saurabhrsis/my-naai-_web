@@ -445,6 +445,7 @@ img { display: block; max-width: 100%; }
 .time-slot.disabled { color: #5d6563; background: #101313; text-decoration: line-through; }
 .time-slot small { color: var(--red); font-size: 8px; text-decoration: none; }
 .holiday-note { display: flex; align-items: center; gap: 8px; padding: 14px; border-radius: 12px; color: var(--red); background: rgba(242,123,116,.08); font-size: 11px; }
+.availability-empty { justify-content: center; text-align: center; line-height: 1.4; }
 .schedule-total { position: sticky; bottom: max(7px, env(safe-area-inset-bottom)); margin-top: 2px; }
 .schedule-total strong { color: var(--gold); font-size: 15px; }
 

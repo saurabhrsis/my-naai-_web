@@ -70,14 +70,43 @@ export function getInitials(value) {
 }
 
 export function getDistanceInKm(lat1, lon1, lat2, lon2) {
-  const values = [lat1, lon1, lat2, lon2].map(Number);
-  if (values.some(value => !Number.isFinite(value) || value === 0)) return null;
+  const rawValues = [lat1, lon1, lat2, lon2];
+  if (rawValues.some(value => value === null || value === undefined || String(value).trim() === '')) return null;
+  const values = rawValues.map(Number);
+  // Zero is a valid latitude/longitude (the equator or Greenwich), so only
+  // reject missing/non-numeric coordinates here. Indian salon coordinates are
+  // never zero, but rejecting it made this helper incorrect and hid valid data.
+  if (values.some(value => !Number.isFinite(value))) return null;
   const [aLat, aLon, bLat, bLon] = values;
   const radius = 6371;
   const dLat = ((bLat - aLat) * Math.PI) / 180;
   const dLon = ((bLon - aLon) * Math.PI) / 180;
   const a = Math.sin(dLat / 2) ** 2 + Math.cos((aLat * Math.PI) / 180) * Math.cos((bLat * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
-  return Number((radius * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)))).toFixed(1));
+  // Keep enough precision for the formatter to distinguish a real sub-100 m
+  // distance from an API placeholder. The card controls display rounding.
+  return radius * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+}
+
+// The API sometimes sends a placeholder distance of 0 when a salon has no
+// usable coordinates. Treat that as unknown instead of showing a misleading
+// "0 km" chip. A genuinely calculated zero-distance result is formatted as
+// "< 0.1 km" by formatDistanceInKm.
+export function normalizeDistanceInKm(value) {
+  if (value === null || value === undefined || String(value).trim() === '') return null;
+  const text = String(value).trim().toLowerCase();
+  const match = text.match(/-?\d+(?:[.,]\d+)?/);
+  if (!match) return null;
+  const number = Number(match[0].replace(',', '.'));
+  if (!Number.isFinite(number) || number <= 0) return null;
+  return text.includes('meter') || /\bm\b/.test(text) ? number / 1000 : number;
+}
+
+export function formatDistanceInKm(value, { zeroLabel = '< 0.1 km' } = {}) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0) return '';
+  if (number === 0) return zeroLabel;
+  if (number < 0.1) return '< 0.1 km';
+  return `${Number(number.toFixed(1))} km`;
 }
 
 export function getSalonStatus(businessHours = [], explicitOpen) {

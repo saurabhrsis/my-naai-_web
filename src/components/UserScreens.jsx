@@ -45,8 +45,10 @@ import {
   Field,
   GOLD,
   getBrowserLocation,
+  formatDistanceInKm,
   getDistanceInKm,
   getErrorMessage,
+  normalizeDistanceInKm,
   getInitials,
   getSalonStatus,
   ImageWithFallback,
@@ -141,7 +143,8 @@ function GenderToggle({ value, onChange }) {
 
 function SalonCard({ salon, saved, onSelect, onBookmark, userLocation }) {
   const calculatedDistance = userLocation ? getDistanceInKm(userLocation.latitude, userLocation.longitude, salon.latitude, salon.longitude) : null;
-  const distance = calculatedDistance ?? salon.distance;
+  const distance = calculatedDistance !== null ? calculatedDistance : normalizeDistanceInKm(salon.distance);
+  const distanceLabel = distance === null ? '' : formatDistanceInKm(distance);
   const openMap = event => {
     event.stopPropagation();
     if (salon.latitude && salon.longitude) window.open(`https://www.google.com/maps/search/?api=1&query=${salon.latitude},${salon.longitude}`, '_blank', 'noopener,noreferrer');
@@ -151,7 +154,7 @@ function SalonCard({ salon, saved, onSelect, onBookmark, userLocation }) {
       <div className="salon-card-image-wrap">
         <ImageWithFallback src={salon.image} fallback={USER_FALLBACK_IMAGE} alt={salon.name} className="salon-card-image" />
         <span className="image-overlay-label"><i className={cx('status-dot', salon.isOpen && 'open')} />{salon.isOpen ? 'Open now' : 'Closed'}</span>
-        {distance !== null && distance !== undefined && <span className="distance-chip"><Navigation size={11} /> {distance} km</span>}
+        {distanceLabel && <span className="distance-chip"><Navigation size={11} /> {distanceLabel}</span>}
         <button className={cx('bookmark-button', saved && 'saved')} onClick={event => { event.stopPropagation(); onBookmark(salon.id); }} aria-label={saved ? 'Remove bookmark' : 'Save salon'}>{saved ? <BookmarkCheck size={18} fill="currentColor" /> : <Bookmark size={18} />}</button>
       </div>
       <div className="salon-card-body">
@@ -213,7 +216,10 @@ export function HomeScreen({ session, navigate, notify }) {
           : null;
         return {
           ...normalized,
-          distance: distance ?? (Number.isFinite(Number(item.distance)) ? Number(item.distance) : null),
+          // A server-side 0 is usually the missing-distance sentinel. Keep a
+          // calculated zero (the salon really is within 50 m), but never carry
+          // an unverified API zero to the card or nearest-first sort.
+          distance: distance ?? normalizeDistanceInKm(item.distance),
           isSaved: item.isSaved ?? item.saved ?? item.isSavedSalon ?? false,
         };
       });
@@ -414,6 +420,12 @@ export function ServicesScreen({ params, navigate, notify }) {
   return <div className="screen services-screen"><PageHeader title="Select services" subtitle={salon.salonName || salon.name} onBack={() => navigate(-1)} /><div className="selection-summary"><span><Scissors size={17} /> Pick one or more</span><strong>{selected.length ? `${selected.length} selected · ${formatCurrency(total)}` : 'Nothing selected yet'}</strong></div>{services.length ? <div className="select-service-grid">{services.map(item => { const itemId = item.serviceId || item.id; const active = selected.some(value => (value.serviceId || value.id) === itemId); return <button key={itemId} className={cx('select-service-card', active && 'active')} onClick={() => toggle(item)}><span className="service-select-icon">{active ? <Check size={17} /> : <Scissors size={17} />}</span><span className="service-card-copy"><strong>{item.serviceName || item.name}</strong><small>{item.durationMinutes || item.duration || 30} min · {item.description || 'Professional salon service'}</small></span><b>{formatCurrency(item.price)}</b>{active && <span className="selected-check"><CheckCircle2 size={18} fill="currentColor" /></span>}</button>; })}</div> : <EmptyState icon={Scissors} title="No services listed" message="Please check back with this salon." />}{selected.length > 0 && <div className="sticky-continue"><div><span>{selected.length} service{selected.length > 1 ? 's' : ''}</span><small>Next, choose a specialist and time</small></div><Button onClick={() => navigate('schedule', { salon, selectedServices: selected })}>Choose a time <ArrowRight size={17} /></Button></div>}</div>;
 }
 
+function getServiceDurationMinutes(service = {}) {
+  const value = service.durationMinutes ?? service.duration;
+  const duration = Number.parseFloat(String(value));
+  return Number.isFinite(duration) && duration > 0 ? duration : 30;
+}
+
 function createTimeSlots(open = '09:00', close = '21:00') {
   const [openHour, openMinute] = String(open).slice(0, 5).split(':').map(Number);
   const [closeHour, closeMinute] = String(close).slice(0, 5).split(':').map(Number);
@@ -437,20 +449,48 @@ export function ScheduleScreen({ params, navigate, notify }) {
   const [barber, setBarber] = useState(null);
   const [time, setTime] = useState('');
   const [loading, setLoading] = useState(false);
-  const schedule = salon.businessHours?.[0] || { openingTime: '09:00:00', closingTime: '21:00:00', holidayDays: [] };
+  const schedule = {
+    openingTime: '09:00:00',
+    closingTime: '21:00:00',
+    holidayDays: [],
+    ...((Array.isArray(salon.businessHours) ? salon.businessHours[0] : salon.businessHours) || {}),
+  };
   const date = new Date(Date.now() + dayOffset * 86400000);
   const bookingDate = date.toISOString().slice(0, 10);
   const weekday = date.toLocaleDateString('en-US', { weekday: 'long' });
   const holiday = (schedule.holidayDays || []).some(day => String(day).toLowerCase() === weekday.toLowerCase());
   const slots = useMemo(() => createTimeSlots(schedule.openingTime, schedule.closingTime), [schedule.openingTime, schedule.closingTime]);
   const booked = useMemo(() => {
-    const day = (salon.bookedSlots || []).find(item => item.date === bookingDate);
-    const asMinutes = value => { const [hour, minute] = String(value).slice(0, 5).split(':').map(Number); return hour * 60 + minute; };
-    return (day?.slots || []).map(item => [asMinutes(item.start), asMinutes(item.end)]);
+    const day = (salon.bookedSlots || []).find(item => String(item.date || item.bookingDate || '').slice(0, 10) === bookingDate);
+    const asMinutes = value => {
+      const [hour, minute] = String(value || '').slice(0, 5).split(':').map(Number);
+      return Number.isFinite(hour) && Number.isFinite(minute) ? hour * 60 + minute : null;
+    };
+    return (day?.slots || []).map(item => [asMinutes(item.start || item.startTime), asMinutes(item.end || item.endTime)])
+      .filter(([start, end]) => start !== null && end !== null && end > start);
   }, [bookingDate, salon.bookedSlots]);
-  const isPast = value => dayOffset === 0 && (() => { const [h, m] = value.split(':').map(Number); const now = new Date(); return h * 60 + m <= now.getHours() * 60 + now.getMinutes(); })();
-  const isBooked = value => { const [h, m] = value.split(':').map(Number); const current = h * 60 + m; return booked.some(([start, end]) => current >= start && current < end); };
-  useEffect(() => { if (dayOffset === 0) setTime(slots.find(slot => !isPast(slot.value) && !isBooked(slot.value))?.value || ''); else setTime(slots[0]?.value || ''); }, [dayOffset, slots]);
+  const serviceDuration = Math.max(10, services.reduce((total, item) => total + getServiceDurationMinutes(item), 0));
+  const toMinutes = value => { const [hour, minute] = String(value).slice(0, 5).split(':').map(Number); return hour * 60 + minute; };
+  const isPast = useCallback(value => dayOffset === 0 && (() => { const [h, m] = value.split(':').map(Number); const now = new Date(); return h * 60 + m <= now.getHours() * 60 + now.getMinutes(); })(), [dayOffset]);
+  const isBooked = useCallback(value => { const current = toMinutes(value); return booked.some(([start, end]) => current >= start && current < end); }, [booked]);
+  const availableSlots = useMemo(() => {
+    const opening = toMinutes(schedule.openingTime);
+    const closing = toMinutes(schedule.closingTime);
+    const closingAbsolute = closing <= opening ? closing + 1440 : closing;
+    return slots.filter(slot => {
+      if (isPast(slot.value)) return false;
+      const rawStart = toMinutes(slot.value);
+      const start = closing <= opening && rawStart < opening ? rawStart + 1440 : rawStart;
+      const end = start + serviceDuration;
+      if (end > closingAbsolute || isBooked(slot.value)) return false;
+      return !booked.some(([bookedStart, bookedEnd]) => {
+        const normalizedStart = closing <= opening && bookedStart < opening ? bookedStart + 1440 : bookedStart;
+        const normalizedEnd = closing <= opening && bookedEnd < opening ? bookedEnd + 1440 : bookedEnd;
+        return normalizedStart < end && normalizedEnd > start;
+      });
+    });
+  }, [booked, isBooked, isPast, schedule.closingTime, schedule.openingTime, serviceDuration, slots]);
+  useEffect(() => { setTime(availableSlots[0]?.value || ''); }, [availableSlots]);
   const confirm = async () => {
     if (!time) return notify?.('error', holiday ? `This salon is closed on ${weekday}.` : 'Please choose an available time.');
     if (!services.length) return notify?.('error', 'Please select at least one service.');
@@ -462,7 +502,7 @@ export function ScheduleScreen({ params, navigate, notify }) {
       navigate('bookings');
     } catch (error) { notify?.('error', getErrorMessage(error, 'Could not send booking request.')); } finally { setLoading(false); }
   };
-  return <div className="screen schedule-screen"><PageHeader title="Schedule appointment" subtitle={salon.salonName || salon.name} onBack={() => navigate(-1)} /><section className="schedule-section"><div className="section-label"><UserRound size={17} /><span>Choose a specialist <small>Optional</small></span></div><div className="barber-scroll">{(salon.barbers || []).map(item => { const active = (barber?.barberId || barber?.id) === (item.barberId || item.id); return <button key={item.barberId || item.id} className={cx('barber-card', active && 'active')} onClick={() => setBarber(active ? null : item)}><ImageWithFallback src={item.profileImageUrl || item.image} fallback="/assets/naai/barber1.jpeg" alt={item.fullName || item.name} className="barber-image" /><strong>{item.fullName || item.name}</strong><span className={item.isAvailable ? 'available' : 'unavailable'}><i />{item.isAvailable ? 'Available' : 'Away'}</span><small><Star size={12} fill="currentColor" /> {item.ratingAverage || item.rating || '0.0'}</small></button>; })}{!(salon.barbers || []).length && <p className="muted-line">Any available specialist will take care of you.</p>}</div></section><section className="schedule-section"><div className="section-label"><CalendarDays size={17} /><span>Choose a date</span></div><div className="date-choice-row">{[0, 1, 2].map(offset => { const optionDate = new Date(Date.now() + offset * 86400000); return <button key={offset} className={cx('date-choice', dayOffset === offset && 'active')} onClick={() => setDayOffset(offset)}><small>{offset === 0 ? 'Today' : offset === 1 ? 'Tomorrow' : 'Day after'}</small><strong>{optionDate.getDate()}</strong><span>{optionDate.toLocaleDateString('en-IN', { month: 'short' })}</span></button>; })}</div></section><section className="schedule-section"><div className="section-label"><Clock3 size={17} /><span>Choose a time <small>{holiday ? `Closed on ${weekday}` : '10 minute slots'}</small></span></div>{holiday ? <div className="holiday-note"><CircleAlert size={18} /><span>Salon is closed on {weekday}. Choose another day.</span></div> : <div className="time-grid">{slots.map(slot => { const disabled = isPast(slot.value) || isBooked(slot.value); return <button key={slot.value} className={cx('time-slot', time === slot.value && 'active', disabled && 'disabled')} disabled={disabled} onClick={() => setTime(slot.value)}>{slot.label}{isBooked(slot.value) && <small>Booked</small>}</button>; })}</div>}</section><div className="schedule-total"><div><span>Estimated total</span><strong>{formatCurrency(services.reduce((sum, item) => sum + Number(item.price || 0), 0))}</strong></div><Button loading={loading} onClick={confirm}>Confirm booking <Check size={17} /></Button></div></div>;
+  return <div className="screen schedule-screen"><PageHeader title="Schedule appointment" subtitle={salon.salonName || salon.name} onBack={() => navigate(-1)} /><section className="schedule-section"><div className="section-label"><UserRound size={17} /><span>Choose a specialist <small>Optional</small></span></div><div className="barber-scroll">{(salon.barbers || []).map(item => { const active = (barber?.barberId || barber?.id) === (item.barberId || item.id); return <button key={item.barberId || item.id} className={cx('barber-card', active && 'active')} onClick={() => setBarber(active ? null : item)}><ImageWithFallback src={item.profileImageUrl || item.image} fallback="/assets/naai/barber1.jpeg" alt={item.fullName || item.name} className="barber-image" /><strong>{item.fullName || item.name}</strong><span className={item.isAvailable ? 'available' : 'unavailable'}><i />{item.isAvailable ? 'Available' : 'Away'}</span><small><Star size={12} fill="currentColor" /> {item.ratingAverage || item.rating || '0.0'}</small></button>; })}{!(salon.barbers || []).length && <p className="muted-line">Any available specialist will take care of you.</p>}</div></section><section className="schedule-section"><div className="section-label"><CalendarDays size={17} /><span>Choose a date</span></div><div className="date-choice-row">{[0, 1, 2].map(offset => { const optionDate = new Date(Date.now() + offset * 86400000); return <button key={offset} className={cx('date-choice', dayOffset === offset && 'active')} onClick={() => setDayOffset(offset)}><small>{offset === 0 ? 'Today' : offset === 1 ? 'Tomorrow' : 'Day after'}</small><strong>{optionDate.getDate()}</strong><span>{optionDate.toLocaleDateString('en-IN', { month: 'short' })}</span></button>; })}</div></section><section className="schedule-section"><div className="section-label"><Clock3 size={17} /><span>Choose a time <small>{holiday ? `Closed on ${weekday}` : 'Available 10 minute slots'}</small></span></div>{holiday ? <div className="holiday-note"><CircleAlert size={18} /><span>Salon is closed on {weekday}. Choose another day.</span></div> : availableSlots.length ? <div className="time-grid">{availableSlots.map(slot => <button key={slot.value} className={cx('time-slot', time === slot.value && 'active')} onClick={() => setTime(slot.value)}>{slot.label}</button>)}</div> : <div className="holiday-note availability-empty"><CircleAlert size={18} /><span>No available time slots for {weekday}. Please choose another day.</span></div>}</section><div className="schedule-total"><div><span>Estimated total</span><strong>{formatCurrency(services.reduce((sum, item) => sum + Number(item.price || 0), 0))}</strong></div><Button loading={loading} onClick={confirm}>Confirm booking <Check size={17} /></Button></div></div>;
 }
 
 export function NotificationsScreen({ session, notify, navigate }) {
