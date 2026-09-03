@@ -84,6 +84,26 @@ async function getPushServiceWorker() {
   return registrationPromise;
 }
 
+// Read-only worker lookup for the diagnostics card: registering on demand can
+// block for seconds while the script activates, and the health check should
+// describe the current state rather than change it.
+async function peekPushServiceWorker() {
+  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return null;
+  try {
+    const registrations = navigator.serviceWorker.getRegistrations ? await navigator.serviceWorker.getRegistrations() : [];
+    const isOurs = registration => [registration?.active, registration?.waiting, registration?.installing]
+      .some(worker => String(worker?.scriptURL || '').includes('firebase-messaging-sw'));
+    const match = registrations.find(isOurs);
+    if (match) return match;
+    return navigator.serviceWorker.getRegistration
+      ? await navigator.serviceWorker.getRegistration('/firebase-cloud-messaging-push-scope')
+      : null;
+  } catch (error) {
+    console.debug(getErrorMessage(error, 'Could not read the service-worker registrations.'));
+    return null;
+  }
+}
+
 // Explains *why* push is unavailable so the UI (and support) can say something
 // useful instead of failing silently.
 export async function getPushStatus() {
@@ -185,6 +205,95 @@ export function normalizePushPayload(payload = {}) {
     type: String(data.type || data.notificationType || '').toUpperCase(),
     hasData: Boolean(Object.keys(raw).length),
   };
+}
+
+// Records the last foreground delivery so the in-app diagnostics can prove the
+// FCM pipeline is alive end to end (backend -> Firebase -> browser -> portal).
+export function recordForegroundMessage(message = {}) {
+  try {
+    // A foreground FCM message arrives as { notification, data, from } — the
+    // booking type lives in data, not at the top level.
+    const data = message.data || {};
+    localStorage.setItem('FCM_LAST_MESSAGE', JSON.stringify({
+      at: new Date().toISOString(),
+      type: data.type || data.notificationType || message.type || '',
+      title: message.notification?.title || data.title || message.title || '',
+    }));
+  } catch (storageError) {
+    console.debug(getErrorMessage(storageError, 'Could not record the last notification.'));
+  }
+}
+
+export function readForegroundMessageRecord() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem('FCM_LAST_MESSAGE') || 'null');
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch (parseError) {
+    return null;
+  }
+}
+
+function maskToken(token) {
+  const value = String(token || '');
+  if (!value) return '';
+  return value.length <= 24 ? `${value.slice(0, 6)}…` : `${value.slice(0, 14)}…${value.slice(-6)} (${value.length} chars)`;
+}
+
+// Step-by-step web push health, shown on both Account screens so "notifications
+// are not working" can be pinned to a specific layer on the actual device.
+export async function getPushDiagnostics() {
+  const checks = [];
+  const add = (label, state, value, detail = '') => checks.push({ label, state, value, detail });
+
+  add('Secure context (HTTPS)', window.isSecureContext ? 'ok' : 'fail', window.isSecureContext ? 'Yes' : 'No', window.isSecureContext ? '' : 'Web push only works on https:// (or localhost).');
+  const hasBrowserApis = 'Notification' in window && 'serviceWorker' in navigator;
+  add('Browser APIs', hasBrowserApis ? 'ok' : 'fail', hasBrowserApis ? 'Available' : 'Missing', hasBrowserApis ? '' : 'This browser has no Notification/serviceWorker API — web push cannot work here.');
+  const requiredConfig = { apiKey: firebaseConfig.apiKey, projectId: firebaseConfig.projectId, messagingSenderId: firebaseConfig.messagingSenderId, appId: firebaseConfig.appId, vapidKey };
+  const missingRequired = Object.entries(requiredConfig).filter(([, value]) => !value).map(([key]) => key);
+  const missingOptional = ['authDomain', 'storageBucket'].filter(key => !firebaseConfig[key]);
+  add('Firebase web config', missingRequired.length ? 'fail' : 'ok',
+    missingRequired.length ? `Missing ${missingRequired.join(', ')}` : missingOptional.length ? `Complete (${missingOptional.join(', ')} not set — not needed for push)` : 'Complete',
+    missingRequired.length ? 'Set the VITE_FIREBASE_* build variables and redeploy.' : '');
+  add('Notification permission', Notification.permission === 'granted' ? 'ok' : Notification.permission === 'denied' ? 'fail' : 'warn', Notification.permission, Notification.permission === 'denied' ? 'Allow notifications for this site in browser settings, then retry.' : Notification.permission === 'default' ? 'Not requested yet.' : '');
+
+  let messaging = null;
+  try { messaging = await getMessagingClient(); } catch (error) { console.debug(getErrorMessage(error, 'Messaging client unavailable.')); }
+  add('Firebase Messaging', messaging ? 'ok' : 'fail', messaging ? 'Initialised' : 'Unavailable', messaging ? '' : 'iOS/iPadOS needs the installed PWA (Add to Home Screen); some browsers block it entirely.');
+
+  let registration = null;
+  try {
+    registration = await peekPushServiceWorker();
+    if (!registration && isPushConfigured()) registration = await getPushServiceWorker();
+  } catch (error) { console.debug(getErrorMessage(error, 'Worker registration unavailable.')); }
+  const worker = registration?.active || registration?.waiting || registration?.installing || null;
+  add('Messaging service worker', registration ? 'ok' : 'fail', registration ? `${worker?.state || 'registered'} · scope ${registration.scope}` : 'Not registered', registration ? ''
+    : isPushConfigured()
+      ? 'The worker script /firebase-messaging-sw.js could not be registered (blocked, offline, or gstatic unreachable).'
+      : 'Registration is skipped until the Firebase web config is complete.');
+
+  let subscription = null;
+  try { subscription = registration?.pushManager ? await registration.pushManager.getSubscription() : null; } catch (error) { console.debug(getErrorMessage(error, 'Push subscription unavailable.')); }
+  add('Push subscription', subscription ? 'ok' : 'warn', subscription ? `Active · ${(subscription.endpoint || '').replace(/^https?:\/\//, '').split('/')[0]}` : 'None yet', subscription ? '' : 'Created on the next token request.');
+
+  const storedToken = typeof localStorage !== 'undefined' ? localStorage.getItem('FCM_TOKEN') || '' : '';
+  const token = storedToken || (messaging ? await getPushToken({ requestPermission: false }) : '');
+  add('FCM device token', token ? 'ok' : 'fail', token ? maskToken(token) : 'Empty', token
+    ? 'This is the value sent to the API as deviceToken.'
+    : Notification.permission === 'granted'
+      ? 'Permission is granted but no token exists yet — the worker or Firebase config is the problem, not the browser.'
+      : 'Sign-in needs a token: allow notifications, then sign in again.');
+
+  const last = readForegroundMessageRecord();
+  add('Last foreground message', last ? 'ok' : 'warn', last ? `${last.type || 'notification'} · ${new Date(last.at).toLocaleString('en-IN')}` : 'None received yet', last ? '' : 'Send a test notification while this tab is open to verify delivery.');
+
+  const failed = checks.some(check => check.state === 'fail');
+  return { ok: !failed, checks };
+}
+
+export function formatPushDiagnostics(diagnostics = {}) {
+  return (diagnostics.checks || [])
+    .map(check => `${check.state.toUpperCase()} · ${check.label}: ${check.value}${check.detail ? ` — ${check.detail}` : ''}`)
+    .join('\n');
 }
 
 export async function setupPush({ onMessage: handleMessage } = {}) {

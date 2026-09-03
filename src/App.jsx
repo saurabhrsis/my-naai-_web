@@ -20,7 +20,7 @@ import {
   X,
 } from 'lucide-react';
 import { api, clearSession, getToken, setToken } from './lib/api';
-import { deletePushToken, displayNotification, getNotificationRoute, getPushStatus, getPushToken, isActionableNotification, normalizePushPayload, setupPush } from './lib/push';
+import { deletePushToken, displayNotification, getNotificationRoute, getPushStatus, getPushToken, isActionableNotification, normalizePushPayload, recordForegroundMessage, setupPush } from './lib/push';
 import { resetLiveUpdatesSocket } from './lib/socket';
 import { DEFAULT_SERVICES } from './lib/defaultServices';
 import { STATE_OPTIONS } from './lib/stateOptions';
@@ -494,6 +494,7 @@ function AppShell({ session, route, navigate, onLogout, onSessionUpdate, notifyI
       onMessage: payload => {
         if (cancelled) return;
         const message = normalizePushPayload(payload);
+        recordForegroundMessage(message);
         displayNotification({ title: message.title, body: message.body, data: message.data });
         notify('info', `${message.title}${message.body && message.body !== message.title ? ` — ${message.body}` : ''}`);
         if (!isActionableNotification(message.type, session.role)) return;
