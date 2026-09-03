@@ -35,6 +35,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { api, getFileUrl } from '../lib/api';
+import { getNotificationRoute, isActionableNotification } from '../lib/push';
 
 import { subscribeToLiveUpdates } from '../lib/socket';
 import {
@@ -71,6 +72,18 @@ function getList(response, keys = []) {
   if (Array.isArray(response?.data)) return response.data;
   for (const key of keys) if (Array.isArray(response?.data?.[key])) return response.data[key];
   return [];
+}
+
+function getNotificationAction(item = {}, role = '') {
+  const type = String(item.type || item.notificationType || item.notification_type || '').toUpperCase();
+  const bookingRequestId = item.bookingRequestId || item.bookingId || item.booking_request_id || '';
+  if (!type || !bookingRequestId || !isActionableNotification(type, role)) return null;
+  const route = getNotificationRoute({ ...item, type, bookingRequestId }, role);
+  if (!route?.name) return null;
+  return {
+    route,
+    label: type === 'DELAY_TIME_PROPOSAL' ? 'Review delay' : type === 'DELAY_BOOKING' ? 'Open delay options' : 'Open booking request',
+  };
 }
 
 function normalizeProduct(item = {}) {
@@ -454,6 +467,7 @@ export function ScheduleScreen({ params, navigate, notify }) {
 
 export function NotificationsScreen({ session, notify, navigate }) {
   const isSalon = session.role === 'SALON';
+  const role = isSalon ? 'SALON' : 'USER';
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -473,7 +487,10 @@ export function NotificationsScreen({ session, notify, navigate }) {
     } finally { setLoading(false); }
   }, [isSalon, notify, session.userId]);
   useEffect(() => { load(); }, [load]);
-  return <div className="screen notifications-screen"><PageHeader title="Notifications" subtitle={isSalon ? 'Booking requests and salon updates.' : 'Updates about your appointments.'} onBack={() => navigate(isSalon ? 'queue' : 'home')} action={<button className="icon-btn ghost" onClick={load} aria-label="Refresh notifications"><Zap size={18} /></button>} />{loadError && !loading && <div className="inline-notice notification-error"><CircleAlert size={16} /><span>{loadError}</span><button onClick={load}>Try again</button></div>}{loading ? <div className="notification-list">{[1, 2, 3].map(item => <SkeletonCard key={item} className="notification-skeleton" />)}</div> : items.length ? <div className="notification-list">{items.map((item, index) => <article className="notification-card" key={item.notificationId || item.id || index}><div className="notification-icon"><Bell size={17} /></div><div><div className="notification-heading"><h3>{item.title || 'My Naai update'}</h3><span>{formatDateTime(item.createdAt)}</span></div><p>{item.body || item.message || 'You have a new update from My Naai.'}</p></div></article>)}</div> : !loadError && <EmptyState icon={Bell} title="No notifications yet" message="We will keep important booking updates here." />}</div>;
+  return <div className="screen notifications-screen"><PageHeader title="Notifications" subtitle={isSalon ? 'Booking requests and salon updates.' : 'Updates about your appointments.'} onBack={() => navigate(isSalon ? 'queue' : 'home')} action={<button className="icon-btn ghost" onClick={load} aria-label="Refresh notifications"><Zap size={18} /></button>} />{loadError && !loading && <div className="inline-notice notification-error"><CircleAlert size={16} /><span>{loadError}</span><button onClick={load}>Try again</button></div>}{loading ? <div className="notification-list">{[1, 2, 3].map(item => <SkeletonCard key={item} className="notification-skeleton" />)}</div> : items.length ? <div className="notification-list">{items.map((item, index) => {
+    const action = getNotificationAction(item, role);
+    return <article className={cx('notification-card', action && 'notification-actionable')} key={item.notificationId || item.id || index}><div className="notification-icon"><Bell size={17} /></div><div><div className="notification-heading"><h3>{item.title || 'My Naai update'}</h3><span>{formatDateTime(item.createdAt)}</span></div><p>{item.body || item.message || 'You have a new update from My Naai.'}</p>{action && <button className="notification-open-button" type="button" onClick={() => navigate(action.route.name, action.route.params)}>{action.label}<ArrowRight size={14} /></button>}</div></article>;
+  })}</div> : !loadError && <EmptyState icon={Bell} title="No notifications yet" message="We will keep important booking updates here." />}</div>;
 }
 
 export function DelayRequestScreen({ params, navigate, notify }) {

@@ -617,7 +617,17 @@ function AppShell({ session, route, navigate, onLogout, onSessionUpdate, notifyI
         if (cancelled) return;
         const message = normalizePushPayload(payload);
         recordForegroundMessage(message);
-        displayNotification({ title: message.title, body: message.body, data: message.data });
+        displayNotification({
+          title: message.title,
+          body: message.body,
+          data: message.data,
+          // If this browser cannot attach a service-worker notification click,
+          // the Notification API fallback still opens the same route.
+          onClick: () => {
+            const next = getNotificationRoute(message.data, session.role);
+            if (next.name && next.name !== routeName.current) navigate(next.name, next.params);
+          },
+        });
         notify('info', `${message.title}${message.body && message.body !== message.title ? ` — ${message.body}` : ''}`);
         // Time-critical notification: sound the booking buzzer + vibrate, like
         // the mobile app. Informational messages stay silent by design.
