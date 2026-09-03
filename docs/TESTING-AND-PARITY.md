@@ -55,7 +55,7 @@ boundary so the lib can be imported under jsdom.
 | UserProduct | `#/products` | ✅ |
 | SalonDetailScreen | `#/detail` | ✅ |
 | SalonServicesScreen | `#/services` | ✅ |
-| BookingSchedule | `#/schedule` | ✅ slot picker |
+| BookingSchedule | `#/schedule` | ✅ available-slot picker (past, booked, overlapping, and too-late slots hidden) |
 | AccountScreen | `#/account` | ✅ profile + Notification status card |
 | UserNotifications | `#/notifications` | ✅ |
 | DelayRequestScreen | `#/delay` | ✅ accept/reject via `customer-delay-response` |

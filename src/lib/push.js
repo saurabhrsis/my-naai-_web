@@ -147,14 +147,8 @@ export async function getPushToken({ requestPermission = false } = {}) {
 }
 
 // Booking-request notifications expose Accept / Reject / Delay action buttons,
-// mirroring the My Naai mobile app. Browsers cap action buttons at two (Chrome),
-// so Accept + Reject are guaranteed and Delay stays reachable by tapping the
-// body or in the request screen itself; every action is also handled by the
-// service worker so it works when the app is closed.
-function supportsActions() {
-  return typeof window !== 'undefined' && 'Notification' in window && 'actions' in Notification.prototype;
-}
-
+// mirroring the My Naai mobile app. Browsers that do not render notification
+// actions fall back to the notification body, which opens the request screen.
 export function bookingRequestActions() {
   return [
     { action: 'ACCEPT_BOOKING', title: 'Accept' },
@@ -166,7 +160,7 @@ export function bookingRequestActions() {
 // FCM delivers foreground web messages to the page instead of the OS, so the
 // app has to render them. Showing them through the messaging service worker
 // keeps the notificationclick deep-link routing in one place.
-export async function displayNotification({ title, body, data = {} } = {}) {
+export async function displayNotification({ title, body, data = {}, onClick } = {}) {
   if (typeof window === 'undefined' || !('Notification' in window) || Notification.permission !== 'granted') return false;
   const type = String(data.type || data.notificationType || '').toUpperCase();
   const buzzer = type === 'BOOKING_REQUEST' || type === 'DELAY_BOOKING' || type === 'DELAY_TIME_PROPOSAL';
@@ -183,9 +177,10 @@ export async function displayNotification({ title, body, data = {} } = {}) {
     // Web Audio while the app is open; this lets a supporting browser sound it
     // when the tab is hidden. Web notification sound support is inconsistent.
     sound: buzzer ? '/assets/audio/buzzer_old.wav' : 'default',
-    // Accept / Reject / Delay action buttons ONLY on booking requests. Every
-    // other notification type carries no action buttons.
-    actions: type === 'BOOKING_REQUEST' && supportsActions() ? bookingRequestActions() : undefined,
+    // Ask the browser for action buttons on booking requests. Browsers that do
+    // not support notification actions ignore this option; the notification
+    // body still opens BookingRequestScreen as the universal fallback.
+    actions: type === 'BOOKING_REQUEST' ? bookingRequestActions() : undefined,
   };
   try {
     const registration = await getPushServiceWorker();
@@ -197,7 +192,12 @@ export async function displayNotification({ title, body, data = {} } = {}) {
     console.debug(getErrorMessage(error, 'The notification service worker could not display the alert.'));
   }
   try {
-    new Notification(title || 'My Naai update', { body: options.body, icon: options.icon, tag: options.tag });
+    const notification = new Notification(title || 'My Naai update', { body: options.body, icon: options.icon, tag: options.tag });
+    if (onClick) notification.onclick = event => {
+      event?.preventDefault?.();
+      onClick();
+      notification.close?.();
+    };
     return true;
   } catch (error) {
     console.debug(getErrorMessage(error, 'This browser blocked the in-page notification.'));

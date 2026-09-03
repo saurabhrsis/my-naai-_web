@@ -445,6 +445,7 @@ img { display: block; max-width: 100%; }
 .time-slot.disabled { color: #5d6563; background: #101313; text-decoration: line-through; }
 .time-slot small { color: var(--red); font-size: 8px; text-decoration: none; }
 .holiday-note { display: flex; align-items: center; gap: 8px; padding: 14px; border-radius: 12px; color: var(--red); background: rgba(242,123,116,.08); font-size: 11px; }
+.availability-empty { justify-content: center; text-align: center; line-height: 1.4; }
 .schedule-total { position: sticky; bottom: max(7px, env(safe-area-inset-bottom)); margin-top: 2px; }
 .schedule-total strong { color: var(--gold); font-size: 15px; }
 
@@ -504,6 +505,9 @@ img { display: block; max-width: 100%; }
 .notification-heading h3 { min-width: 0; margin: 0; font-size: 13px; }
 .notification-heading span { flex: none; color: var(--muted); font-size: 9px; }
 .notification-card p { margin: 6px 0 0; color: var(--muted-light); font-size: 11px; line-height: 1.45; }
+.notification-actionable { border-color: rgba(232,185,126,.28); }
+.notification-open-button { display: inline-flex; align-items: center; gap: 5px; margin-top: 10px; padding: 7px 10px; border: 1px solid rgba(232,185,126,.34); border-radius: 9px; color: var(--gold); background: rgba(232,185,126,.1); font-size: 11px; font-weight: 700; }
+.notification-open-button:hover { background: rgba(232,185,126,.18); }
 .info-intro { display: flex; align-items: flex-start; gap: 9px; margin-bottom: 20px; padding: 14px; border-radius: 15px; color: var(--gold); background: var(--gold-wash); }
 .info-intro p { margin: 0; color: #d1bfa8; font-size: 12px; line-height: 1.5; }
 .info-sections { display: flex; flex-direction: column; gap: 0; }
@@ -575,6 +579,18 @@ img { display: block; max-width: 100%; }
 .push-setup-compact .push-setup-copy p { color: #c6cbca; }
 
 /* Salon editor and subscription */
+.subscription-gate-shell { display: block; }
+.subscription-gate-content { min-height: 100svh; display: flex; flex-direction: column; justify-content: center; padding-top: clamp(24px, 8vh, 90px); padding-bottom: clamp(24px, 8vh, 90px); }
+.subscription-lock-notice { display: flex; align-items: flex-start; gap: 9px; max-width: 670px; margin: 0 0 14px; padding: 12px 13px; border: 1px solid rgba(242,123,116,.48); border-radius: 13px; color: #ffd2cd; background: rgba(242,123,116,.1); font-size: 12px; line-height: 1.5; }
+.subscription-lock-notice svg { flex: none; margin-top: 1px; color: var(--red); }
+.subscription-lock-notice span { display: flex; flex-direction: column; gap: 3px; }
+.subscription-lock-notice strong { color: #ffffff; font-size: 13px; }
+.subscription-gate-loading { width: 100%; max-width: 620px; margin: auto; padding: 30px 18px; text-align: center; }
+.subscription-gate-mark { width: 58px; height: 58px; display: flex; align-items: center; justify-content: center; margin: 0 auto 17px; border-radius: 19px; color: #111; background: var(--gold); }
+.subscription-gate-loading h1 { margin: 0; font-size: clamp(23px, 5vw, 32px); letter-spacing: -.045em; }
+.subscription-gate-loading p { margin: 9px auto 18px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.subscription-gate-loading .spinner-wrap { color: var(--gold); font-size: 12px; }
+.forced-renewal-screen .page-header { margin-bottom: 15px; }
 .profile-editor { display: flex; flex-direction: column; gap: 13px; max-width: 920px; }
 .editor-section { padding: 14px; border: 1px solid rgba(255, 255, 255, .12); border-radius: 18px; background: #1a1f1e; }
 .editor-section.needs-attention { border-color: rgba(242, 123, 116, .45); background: linear-gradient(180deg, rgba(242, 123, 116, .07), rgba(242, 123, 116, 0) 62%), #1a1f1e; }

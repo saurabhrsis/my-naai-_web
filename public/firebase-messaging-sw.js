@@ -105,6 +105,17 @@ async function ownerAction(bookingRequestId, action, delayMinutes) {
   }
 }
 
+function isPlanExpiredResponse(data) {
+  const values = [data?.status, data?.error, data?.code, data?.errorCode, data?.data?.status, data?.data?.error];
+  return values.some(value => String(value || '').toUpperCase() === 'PLAN_EXPIRED');
+}
+
+function salonActionDestination(result) {
+  return isPlanExpiredResponse(result?.data)
+    ? new URL('/#/subscription?mode=RENEW&forceRenewal=true', self.location.origin).href
+    : new URL('/#/queue', self.location.origin).href;
+}
+
 // ACTION BUTTONS: Accept / Reject / Delay are handled first so a closed app can
 // still act. Body clicks fall through to the deep-link routing below.
 self.addEventListener('notificationclick', event => {
@@ -129,10 +140,7 @@ self.addEventListener('notificationclick', event => {
     // ACCEPT / REJECT: hit the API, close the alert, then surface the queue.
     const value = action === ACTION_ACCEPT ? 'ACCEPT' : 'REJECT';
     event.notification.close();
-    event.waitUntil(ownerAction(bookingRequestId, value).then(result => {
-      if (!result.ok) return openOrFocus(new URL('/#/queue', self.location.origin).href);
-      return openOrFocus(new URL('/#/queue', self.location.origin).href);
-    }));
+    event.waitUntil(ownerAction(bookingRequestId, value).then(result => openOrFocus(salonActionDestination(result))));
     return;
   }
 
