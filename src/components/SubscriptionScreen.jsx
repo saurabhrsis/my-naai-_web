@@ -11,7 +11,7 @@ import {
   WalletCards,
   X,
 } from 'lucide-react';
-import { api } from '../lib/api';
+import { api, resetPlanExpiredAlert } from '../lib/api';
 import { FREE_ONBOARDING_PLAN, PARTNER_PLANS, RENEWAL_PLANS } from '../lib/planDetails';
 import {
   clearPendingPayment,
@@ -124,6 +124,7 @@ export function SubscriptionScreen({ params = {}, session, navigate, notify, onA
     }
     const response = await api.renewSalon({ planType: plan.id, paymentId: payment.paymentId, totalAmount: plan.price });
     if (response?.status !== 'SUCCESS') throw new Error(response?.message || 'Renewal failed.');
+    resetPlanExpiredAlert();
     clearPendingPayment();
     // Keep the cached session in step so the account screen does not flash the
     // previous plan while it re-reads the profile. The explicit active flag also

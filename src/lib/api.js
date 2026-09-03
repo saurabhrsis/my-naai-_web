@@ -8,6 +8,15 @@ export const API_BASE_URL = (configuredApiUrl || (import.meta.env.DEV ? '' : 'ht
 
 const TOKEN_KEY = 'mynaai';
 
+// Mirrors the mobile Axios interceptor's `isPlanAlertShown` guard. A busy salon
+// can make several API requests at once; one response should produce one global
+// paywall event, not a stack of redirects. It is reset after logout or a
+// successful renewal.
+let isPlanAlertShown = false;
+export function resetPlanExpiredAlert() {
+  isPlanAlertShown = false;
+}
+
 // The Firebase messaging service worker needs to perform the ACCEPT/REJECT/DELAY
 // booking actions from a notification action button even when the PWA is closed.
 // A service worker cannot read localStorage, so the session token is mirrored
@@ -80,6 +89,7 @@ export function setToken(token) {
 }
 
 export function clearSession() {
+  resetPlanExpiredAlert();
   ['mynaai', 'mynaaiUser', 'isLoggedIn', 'userType', 'isNewSalon', 'FCM_TOKEN'].forEach(key => localStorage.removeItem(key));
   clearNotificationAuth();
   if (typeof window !== 'undefined') window.dispatchEvent(new Event('mynaai:session-expired'));
@@ -116,16 +126,27 @@ export class ApiError extends Error {
   }
 }
 
-function isPlanExpiredPayload(data) {
+function isPlanExpiredPayload(data, httpStatus) {
   const candidates = [
     data?.status,
+    data?.error,
     data?.code,
     data?.errorCode,
     data?.data?.status,
+    data?.data?.error,
     data?.data?.code,
     data?.data?.errorCode,
+    httpStatus,
   ];
   return candidates.some(value => String(value || '').toUpperCase() === 'PLAN_EXPIRED');
+}
+
+function dispatchPlanExpired(data, httpStatus) {
+  if (typeof window === 'undefined' || isPlanAlertShown || !isPlanExpiredPayload(data, httpStatus)) return;
+  isPlanAlertShown = true;
+  window.dispatchEvent(new CustomEvent('mynaai:plan-expired', {
+    detail: { data, httpStatus },
+  }));
 }
 
 async function request(path, { method = 'GET', body, params, headers = {}, auth = true, signal } = {}) {
@@ -153,9 +174,10 @@ async function request(path, { method = 'GET', body, params, headers = {}, auth 
     data = text;
   }
 
-  if (isPlanExpiredPayload(data) && typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent('mynaai:plan-expired', { detail: data }));
-  }
+  // This is the web equivalent of the mobile Axios response interceptor:
+  // inspect every API response, including non-2xx responses, and notify the
+  // mounted salon shell once so it can hard-reset to the renewal screen.
+  dispatchPlanExpired(data, response.status);
 
   if (!response.ok) {
     const message = data?.message || data?.error || `Request failed (${response.status})`;

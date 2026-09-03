@@ -121,7 +121,7 @@ function getSalonSubscriptionState(session = {}) {
 }
 
 function isPlanExpiredResponse(result) {
-  const candidates = [result?.status, result?.code, result?.errorCode, result?.data?.status, result?.data?.code, result?.data?.errorCode];
+  const candidates = [result?.status, result?.error, result?.code, result?.errorCode, result?.data?.status, result?.data?.error, result?.data?.code, result?.data?.errorCode];
   return candidates.some(value => String(value || '').toUpperCase() === 'PLAN_EXPIRED');
 }
 
