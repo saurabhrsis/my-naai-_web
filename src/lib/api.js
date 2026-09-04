@@ -102,10 +102,15 @@ export function getServerUrl() {
 export function getFileUrl(path) {
   if (!path) return '';
   if (typeof path !== 'string') return '';
-  if (/^(https?:|data:|blob:)/i.test(path)) return path;
-  if (path.startsWith('/assets/')) return path;
-  if (path.startsWith('/')) return `${API_BASE_URL}${path}`;
-  return `${API_BASE_URL}/getFiles/${path.replace(/^\/+/, '')}`;
+  const value = path.trim();
+  if (!value) return '';
+  if (/^(https?:|data:|blob:)/i.test(value)) return value;
+  if (value.startsWith('/assets/')) return value;
+  // The mobile app serves uploaded files from `/getfiles/<path>` (lowercase).
+  const filesMatch = value.match(/\/getfiles\/(.+)$/i);
+  if (filesMatch) return `${API_BASE_URL}/getfiles/${filesMatch[1].replace(/^\/+/, '')}`;
+  if (value.startsWith('/')) return `${API_BASE_URL}${value}`;
+  return `${API_BASE_URL}/getfiles/${value.replace(/^\/+/, '')}`;
 }
 
 function queryString(params = {}) {

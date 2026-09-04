@@ -86,7 +86,7 @@ function saveSession(session) {
   return { ...session, role, userId: session.userId || user?.userId || user?.salon?.salonId || user?.salonId || user?.id || '' };
 }
 
-const PUSH_REQUIRED_MESSAGE = 'Browser notifications are required to continue. Allow notifications for this site, then try again.';
+const PUSH_REQUIRED_MESSAGE = 'Notifications are required to continue. Tap Enable, allow notifications for this site, then try again.';
 
 async function requirePushToken() {
   const token = await getPushToken({ requestPermission: true });
@@ -98,6 +98,47 @@ function withDeviceToken(payload, token) {
   const value = typeof token === 'string' ? token.trim() : '';
   if (!value) throw new Error(PUSH_REQUIRED_MESSAGE);
   return { ...payload, deviceToken: value };
+}
+
+async function queryLocationPermission() {
+  if (typeof navigator === 'undefined' || !navigator.geolocation) return 'unsupported';
+  try {
+    if (navigator.permissions?.query) {
+      const result = await navigator.permissions.query({ name: 'geolocation' });
+      if (result.state === 'granted' || result.state === 'denied') return result.state;
+    }
+  } catch (error) {
+    console.debug(getErrorMessage(error, 'Could not check location permission.'));
+  }
+  return 'prompt';
+}
+
+// Opens the browser’s own notification and location dialogs together, from one
+// tap — the same pattern as a native app. Cards stay as a fallback if the
+// person dismisses or blocks either prompt.
+async function promptBrowserPermissions() {
+  const [token] = await Promise.all([
+    (async () => {
+      try {
+        if (typeof Notification === 'undefined' || Notification.permission === 'denied') return '';
+        return await getPushToken({ requestPermission: Notification.permission === 'default' });
+      } catch (error) {
+        console.debug(getErrorMessage(error, 'Browser notification permission was not available.'));
+        return '';
+      }
+    })(),
+    (async () => {
+      try {
+        const state = await queryLocationPermission();
+        if (state === 'denied' || state === 'unsupported') return null;
+        return await getBrowserLocation({ timeout: 60000 });
+      } catch (error) {
+        console.debug(getErrorMessage(error, 'Browser location permission was not available.'));
+        return null;
+      }
+    })(),
+  ]);
+  return token || '';
 }
 
 function flagIsTrue(value) {
@@ -151,23 +192,24 @@ function getRouteFromHash(role) {
   return { name: value, params: Object.fromEntries(new URLSearchParams(query).entries()) };
 }
 
-// Booking buzzers, delay requests and appointment updates are a core My Naai
-// feature and the backend expects a deviceToken, so this card explains exactly
-// why push is unavailable instead of staying silent while sign-in is blocked.
-function NotificationSetupCard({ compact = false, notifyInstall = null }) {
+// The backend requires deviceToken on login and registration. Ask for
+// notification permission on splash and login, with a clear Enable control,
+// and do not continue until a token exists. Location stays optional.
+function NotificationSetupCard({ compact = false, notifyInstall = null, onEnabled }) {
   const [status, setStatus] = useState('checking');
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
+  const onEnabledRef = useRef(onEnabled);
+  onEnabledRef.current = onEnabled;
 
   const inspect = useCallback(async (requestPermission = false) => {
     if (requestPermission) {
-      // Request permission and token directly, then re-evaluate the full
-      // status so denied/unavailable are surfaced correctly.
       try {
         const token = await getPushToken({ requestPermission: true });
         if (token) {
           setStatus('enabled');
           setReason('');
+          onEnabledRef.current?.(token);
           return;
         }
       } catch (inspectError) {
@@ -178,6 +220,7 @@ function NotificationSetupCard({ compact = false, notifyInstall = null }) {
       const result = await getPushStatus();
       setStatus(result.state);
       setReason(result.reason || '');
+      if (result.state === 'enabled' && result.token) onEnabledRef.current?.(result.token);
     } catch (statusError) {
       console.debug(getErrorMessage(statusError, 'Could not check notification status.'));
       setStatus('unavailable');
@@ -188,7 +231,12 @@ function NotificationSetupCard({ compact = false, notifyInstall = null }) {
   useEffect(() => {
     let active = true;
     getPushStatus()
-      .then(result => { if (active) { setStatus(result.state); setReason(result.reason || ''); } })
+      .then(result => {
+        if (!active) return;
+        setStatus(result.state);
+        setReason(result.reason || '');
+        if (result.state === 'enabled' && result.token) onEnabledRef.current?.(result.token);
+      })
       .catch(error => {
         if (!active) return;
         console.debug(getErrorMessage(error, 'Could not check notification status.'));
@@ -205,20 +253,77 @@ function NotificationSetupCard({ compact = false, notifyInstall = null }) {
 
   if (['checking', 'enabled'].includes(status)) return null;
   const copy = {
-    unconfigured: { title: 'Browser notifications are required', body: reason || 'Notifications have not been enabled for this build yet — please contact My Naai support.' },
-    unsupported: { title: 'This browser cannot receive My Naai notifications', body: reason || 'Switch to Chrome, Edge or Samsung Internet, or install My Naai to your home screen on iPhone and iPad.' },
-    denied: { title: 'Notifications are blocked', body: 'Open this site’s browser permissions, set Notifications to Allow, then try again.' },
-    'needs-permission': { title: 'Notifications are required', body: 'Allow browser notifications to receive booking buzzers, delay requests and appointment updates.' },
-    unavailable: { title: 'Notification access needs a retry', body: reason || 'We could not prepare browser notifications. Check the site permission and try again.' },
-  }[status] || { title: 'Notifications unavailable', body: reason };
+    unconfigured: { title: 'Notifications are required', body: reason || 'My Naai needs a notification token to log you in. This site is not set up for web alerts yet — contact support, or use the My Naai app.' },
+    unsupported: { title: 'Notifications are required', body: reason || 'This browser cannot create a notification token. Use Chrome, Edge or Samsung Internet, or install My Naai to your home screen on iPhone and iPad.' },
+    denied: { title: 'You must enable notifications', body: 'Login needs notification permission. Open this site’s browser settings, set Notifications to Allow, then tap Enable.' },
+    'needs-permission': { title: 'You must enable notifications', body: 'Tap Enable and choose Allow. My Naai needs this to log you in and to send booking buzzers, delay requests and appointment updates.' },
+    unavailable: { title: 'You must enable notifications', body: reason || 'We could not create a notification token yet. Tap Enable and allow notifications, then try again.' },
+  }[status] || { title: 'You must enable notifications', body: reason };
   const canRetry = !['unsupported'].includes(status);
   return (
     <section className={cx('push-setup-card', compact && 'push-setup-compact')} aria-live="polite">
       <span className="push-setup-icon"><Bell size={compact ? 15 : 18} /></span>
       <div className="push-setup-copy"><strong>{copy.title}</strong><p>{copy.body}</p></div>
       {status === 'unsupported' && notifyInstall && <Button size="small" onClick={notifyInstall}><Download size={14} /> Install app</Button>}
-      {canRetry && <Button size="small" onClick={enable} loading={busy}>{status === 'denied' || status === 'unavailable' ? 'Try again' : 'Enable alerts'}</Button>}
+      {canRetry && <Button size="small" onClick={enable} loading={busy}>Enable</Button>}
     </section>
+  );
+}
+
+function LocationSetupCard({ compact = false, onLocated }) {
+  const [status, setStatus] = useState('checking');
+  const [busy, setBusy] = useState(false);
+
+  const inspect = useCallback(async () => {
+    setStatus(await queryLocationPermission());
+  }, []);
+
+  useEffect(() => { inspect(); }, [inspect]);
+
+  const enable = async () => {
+    setBusy(true);
+    try {
+      const current = await getBrowserLocation();
+      if (current) {
+        setStatus('granted');
+        onLocated?.(current);
+        return;
+      }
+      setStatus(await queryLocationPermission() === 'denied' ? 'denied' : 'prompt');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (status === 'checking' || status === 'granted') return null;
+
+  const copy = status === 'unsupported'
+    ? { title: 'Location is unavailable', body: 'This browser cannot share your location. Nearby salons will still be listed without distance.' }
+    : status === 'denied'
+      ? { title: 'Location is blocked', body: 'You can still log in. Open this site’s permission settings, set Location to Allow, then tap Try again.' }
+      : { title: 'Allow location', body: 'Optional. Share your location so we can show nearby salons first.' };
+
+  const action = status === 'prompt'
+    ? { label: 'Allow', onClick: enable }
+    : status === 'denied'
+      ? { label: 'Try again', onClick: enable }
+      : null;
+
+  return (
+    <section className={cx('push-setup-card', compact && 'push-setup-compact')} aria-live="polite">
+      <span className="push-setup-icon"><MapPin size={compact ? 15 : 18} /></span>
+      <div className="push-setup-copy"><strong>{copy.title}</strong><p>{copy.body}</p></div>
+      {action && <Button size="small" onClick={action.onClick} loading={busy}>{action.label}</Button>}
+    </section>
+  );
+}
+
+function PermissionsPrompt({ compact = false, notifyInstall = null, onPushToken, onLocated }) {
+  return (
+    <div className={cx('permission-prompt-stack', compact && 'permission-prompt-compact')}>
+      <NotificationSetupCard compact={compact} notifyInstall={notifyInstall} onEnabled={onPushToken} />
+      <LocationSetupCard compact={compact} onLocated={onLocated} />
+    </div>
   );
 }
 
@@ -372,8 +477,29 @@ function AuthFlow({ onComplete, notifyInstall }) {
   const [pushToken, setPushToken] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const askedBrowserPermissions = useRef(false);
+  const askBrowserPermissions = useCallback(async () => {
+    if (askedBrowserPermissions.current) return;
+    askedBrowserPermissions.current = true;
+    const token = await promptBrowserPermissions();
+    if (token) setPushToken(token);
+  }, []);
+  useEffect(() => {
+    if (view !== 'onboarding' && view !== 'login') return undefined;
+    const onGesture = () => { askBrowserPermissions(); };
+    window.addEventListener('pointerdown', onGesture, { once: true });
+    window.addEventListener('keydown', onGesture, { once: true });
+    return () => {
+      window.removeEventListener('pointerdown', onGesture);
+      window.removeEventListener('keydown', onGesture);
+    };
+  }, [askBrowserPermissions, view]);
   const onboarding = [{ image: '/assets/naai/naai3.jpg', kicker: 'THE PROFESSIONAL SPECIALISTS', title: 'Your next good look is closer than you think.', text: 'Find trusted barbers and salons around your location.' }, { image: '/assets/naai/naai2.jpeg', kicker: 'A LITTLE MORE YOU', title: 'Book the service. Skip the waiting room.', text: 'Haircut, beard, spa and more — choose a time that works for you.' }, { image: '/assets/naai/naai1.jpg', kicker: 'MADE FOR YOUR TIME', title: 'Good style, without the guesswork.', text: 'See availability, pick your specialist and arrive ready.' }];
-  const finishOnboarding = () => { localStorage.setItem('hasSeenOnboarding', 'true'); setView('login'); };
+  const finishOnboarding = async () => {
+    localStorage.setItem('hasSeenOnboarding', 'true');
+    await askBrowserPermissions();
+    setView('login');
+  };
   const requestOtp = async event => {
     event.preventDefault();
     if (!/^\d{10}$/.test(mobile)) return setError('Enter a valid 10-digit mobile number.');
@@ -413,6 +539,7 @@ function AuthFlow({ onComplete, notifyInstall }) {
     setBusy(true); setError('');
     try {
       const deviceToken = pushToken || await requirePushToken();
+      setPushToken(deviceToken);
       const payload = withDeviceToken({ phoneNumber: mobile, otp }, deviceToken);
       let verifyMode = salonAuthMode;
       let response;
@@ -453,11 +580,11 @@ function AuthFlow({ onComplete, notifyInstall }) {
     event.preventDefault();
     if (!name.trim()) return setError('Tell us your name to finish setting up.');
     setBusy(true); setError('');
-    try { const deviceToken = pushToken || await requirePushToken(); const response = await api.userOnBoard(withDeviceToken({ phoneNumber: mobile, fullName: name.trim() }, deviceToken)); if (response?.status !== 'SUCCESS') throw new Error(response?.message || 'Could not create account.'); if (!response.data?.token) throw new Error('Your account was created, but no login session was returned. Please try again.'); onComplete({ role: 'USER', token: response.data.token, user: response.data, userId: response.data?.userId }); } catch (createError) { setError(getErrorMessage(createError, 'Could not create your account.')); } finally { setBusy(false); }
+    try { const deviceToken = pushToken || await requirePushToken(); setPushToken(deviceToken); const response = await api.userOnBoard(withDeviceToken({ phoneNumber: mobile, fullName: name.trim() }, deviceToken)); if (response?.status !== 'SUCCESS') throw new Error(response?.message || 'Could not create account.'); if (!response.data?.token) throw new Error('Your account was created, but no login session was returned. Please try again.'); onComplete({ role: 'USER', token: response.data.token, user: response.data, userId: response.data?.userId }); } catch (createError) { setError(getErrorMessage(createError, 'Could not create your account.')); } finally { setBusy(false); }
   };
-  if (view === 'onboarding') return <div className="auth-page onboarding-page"><div className="onboarding-slide" style={{ backgroundImage: `url(${onboarding[slide].image})` }}><div className="auth-image-shade" /><div className="onboarding-top"><Brand light /><div className="onboarding-top-actions">{notifyInstall && <button className="install-auth-button" onClick={notifyInstall}><Download size={14} /> Install app</button>}<button className="skip-button" onClick={finishOnboarding}>Skip</button></div></div><div className="onboarding-copy"><span className="eyebrow">{onboarding[slide].kicker}</span><h1>{onboarding[slide].title}</h1><p>{onboarding[slide].text}</p><NotificationSetupCard compact /><div className="onboarding-controls"><div className="onboarding-dots">{onboarding.map((item, index) => <button key={item.kicker} className={index === slide ? 'active' : ''} onClick={() => setSlide(index)} aria-label={`Slide ${index + 1}`} />)}</div>{slide === onboarding.length - 1 ? <Button size="large" className="lets-start-button" onClick={finishOnboarding}><Sparkles size={18} /> Let's Start</Button> : <button className="next-circle" onClick={() => setSlide(current => current + 1)} aria-label="Next"><ChevronRight size={22} /></button>}</div></div></div></div>;
+  if (view === 'onboarding') return <div className="auth-page onboarding-page"><div className="onboarding-slide" style={{ backgroundImage: `url(${onboarding[slide].image})` }}><div className="auth-image-shade" /><div className="onboarding-top"><Brand light /><div className="onboarding-top-actions">{notifyInstall && <button className="install-auth-button" onClick={notifyInstall}><Download size={14} /> Install app</button>}<button className="skip-button" onClick={finishOnboarding}>Skip</button></div></div><div className="onboarding-copy"><span className="eyebrow">{onboarding[slide].kicker}</span><h1>{onboarding[slide].title}</h1><p>{onboarding[slide].text}</p><PermissionsPrompt compact notifyInstall={notifyInstall} onPushToken={token => { if (token) setPushToken(token); }} /><div className="onboarding-controls"><div className="onboarding-dots">{onboarding.map((item, index) => <button key={item.kicker} className={index === slide ? 'active' : ''} onClick={() => setSlide(index)} aria-label={`Slide ${index + 1}`} />)}</div>{slide === onboarding.length - 1 ? <Button size="large" className="lets-start-button" onClick={finishOnboarding}><Sparkles size={18} /> Let's Start</Button> : <button className="next-circle" onClick={() => setSlide(current => current + 1)} aria-label="Next"><ChevronRight size={22} /></button>}</div></div></div></div>;
   if (view === 'register') return <SalonRegistration initialData={salonRegistrationData} onBack={() => { setSalonRegistrationData(null); setView('login'); }} onComplete={onComplete} notifyInstall={notifyInstall} />;
-  return <div className="auth-page login-page"><div className="auth-visual"><div className="auth-visual-image" /><div className="auth-image-shade" /><div className="auth-visual-content"><Brand light /><div><span className="eyebrow">SALON & GROOMING, REIMAGINED</span><h1>Less waiting.<br /><em>More you.</em></h1><p>Book a great salon nearby and make the time yours.</p></div><div className="visual-quote"><span>“</span><p>Your time is valuable. We’re here to give it back.</p></div></div></div><div className="auth-form-panel"><div className="mobile-auth-brand"><Brand /></div><div className="auth-form-wrap"><span className="eyebrow">WELCOME TO MY NAAI</span><h1>{step === 'phone' ? role === 'USER' ? 'Ready when you are.' : 'Welcome, salon partner.' : step === 'new-user' ? 'One last thing.' : 'Check your phone.'}</h1><p className="auth-subtitle">{step === 'phone' ? role === 'USER' ? 'Find your next appointment without the wait.' : 'Manage your queue and grow your local business.' : step === 'new-user' ? `Let’s create your My Naai profile for +91 ${mobile}.` : `Enter the 6-digit code sent to +91 ${mobile}.`}</p>{step === 'phone' && notifyInstall && <button className="install-auth-button install-login-button" onClick={notifyInstall}><Download size={14} /> Install app</button>}{step === 'phone' && <NotificationSetupCard />}{step === 'phone' && <div className="role-switch"><button className={role === 'USER' ? 'active' : ''} onClick={() => { setRole('USER'); setError(''); }}><CircleUserRound size={16} /> Customer</button><button className={role === 'SALON' ? 'active' : ''} onClick={() => { setRole('SALON'); setError(''); }}><Store size={16} /> Salon partner</button></div>}{error && <div className="form-error" role="alert"><Info size={16} />{error}</div>}{step === 'phone' && <form onSubmit={requestOtp}><Field label="Mobile number"><div className="phone-input"><span>+91</span><input inputMode="numeric" autoComplete="tel" maxLength="10" value={mobile} onChange={event => setMobile(event.target.value.replace(/\D/g, ''))} placeholder="Enter 10-digit number" autoFocus /></div></Field><Button type="submit" loading={busy}>Continue with OTP <ChevronRight size={17} /></Button></form>}{step === 'otp' && <form onSubmit={verify}><Field label="One-time password"><input className="otp-input" inputMode="numeric" autoComplete="one-time-code" maxLength="6" value={otp} onChange={event => setOtp(event.target.value.replace(/\D/g, ''))} placeholder="· · · · · ·" autoFocus /></Field><Button type="submit" loading={busy}>Verify code <ChevronRight size={17} /></Button><button className="resend-link" type="button" onClick={requestOtp}>Resend code</button><button className="back-form-link" type="button" onClick={() => { setStep('phone'); setOtp(''); setError(''); }}>Use a different number</button></form>}{step === 'new-user' && <form onSubmit={createAccount}><Field label="Your name"><input value={name} onChange={event => setName(event.target.value)} placeholder="How should we call you?" autoFocus /></Field><Button type="submit" loading={busy}>Create my account <ChevronRight size={17} /></Button></form>}</div><p className="auth-legal">By continuing, you agree to My Naai’s terms and privacy policy.</p></div></div>;
+  return <div className="auth-page login-page"><div className="auth-visual"><div className="auth-visual-image" /><div className="auth-image-shade" /><div className="auth-visual-content"><Brand light /><div><span className="eyebrow">SALON & GROOMING, REIMAGINED</span><h1>Less waiting.<br /><em>More you.</em></h1><p>Book a great salon nearby and make the time yours.</p></div><div className="visual-quote"><span>“</span><p>Your time is valuable. We’re here to give it back.</p></div></div></div><div className="auth-form-panel"><div className="mobile-auth-brand"><Brand /></div><div className="auth-form-wrap"><span className="eyebrow">WELCOME TO MY NAAI</span><h1>{step === 'phone' ? role === 'USER' ? 'Ready when you are.' : 'Welcome, salon partner.' : step === 'new-user' ? 'One last thing.' : 'Check your phone.'}</h1><p className="auth-subtitle">{step === 'phone' ? role === 'USER' ? 'Find your next appointment without the wait.' : 'Manage your queue and grow your local business.' : step === 'new-user' ? `Let’s create your My Naai profile for +91 ${mobile}.` : `Enter the 6-digit code sent to +91 ${mobile}.`}</p>{step === 'phone' && notifyInstall && <button className="install-auth-button install-login-button" onClick={notifyInstall}><Download size={14} /> Install app</button>}<PermissionsPrompt notifyInstall={notifyInstall} onPushToken={token => { if (token) setPushToken(token); }} />{step === 'phone' && <div className="role-switch"><button className={role === 'USER' ? 'active' : ''} onClick={() => { setRole('USER'); setError(''); }}><CircleUserRound size={16} /> Customer</button><button className={role === 'SALON' ? 'active' : ''} onClick={() => { setRole('SALON'); setError(''); }}><Store size={16} /> Salon partner</button></div>}{error && <div className="form-error" role="alert"><Info size={16} />{error}</div>}{step === 'phone' && <form onSubmit={requestOtp}><Field label="Mobile number"><div className="phone-input"><span>+91</span><input inputMode="numeric" autoComplete="tel" maxLength="10" value={mobile} onChange={event => setMobile(event.target.value.replace(/\D/g, ''))} placeholder="Enter 10-digit number" autoFocus /></div></Field><Button type="submit" loading={busy}>Continue with OTP <ChevronRight size={17} /></Button></form>}{step === 'otp' && <form onSubmit={verify}><Field label="One-time password"><input className="otp-input" inputMode="numeric" autoComplete="one-time-code" maxLength="6" value={otp} onChange={event => setOtp(event.target.value.replace(/\D/g, ''))} placeholder="· · · · · ·" autoFocus /></Field><Button type="submit" loading={busy}>Verify code <ChevronRight size={17} /></Button><button className="resend-link" type="button" onClick={requestOtp}>Resend code</button><button className="back-form-link" type="button" onClick={() => { setStep('phone'); setOtp(''); setError(''); }}>Use a different number</button></form>}{step === 'new-user' && <form onSubmit={createAccount}><Field label="Your name"><input value={name} onChange={event => setName(event.target.value)} placeholder="How should we call you?" autoFocus /></Field><Button type="submit" loading={busy}>Create my account <ChevronRight size={17} /></Button></form>}</div><p className="auth-legal">By continuing, you agree to My Naai’s terms and privacy policy.</p></div></div>;
 }
 
 function SalonRegistration({ initialData, onBack, onComplete, notifyInstall }) {
@@ -530,7 +657,15 @@ function SalonRegistration({ initialData, onBack, onComplete, notifyInstall }) {
   return <div className="auth-page registration-page"><div className="registration-back"><button className="icon-btn ghost" onClick={step === 'profile' ? onBack : () => setStep('profile')} aria-label="Go back"><ChevronRight size={19} className="rotate-180" /></button><Brand />{notifyInstall && <button className="install-auth-button registration-install-button" onClick={notifyInstall}><Download size={14} /> Install app</button>}</div><div className="registration-card"><div className="registration-progress"><span className="active" /><span className={step === 'business' ? 'active' : ''} /><span /><span /></div><span className="eyebrow">SALON PARTNER · STEP {step === 'profile' ? '2' : '3'} OF 3</span><h1>{title}</h1><p className="auth-subtitle">{step === 'profile' ? 'A few details help customers find you.' : 'Tell us when you are ready for your next customer.'}</p><NotificationSetupCard compact />{error && <div className="form-error"><Info size={16} />{error}</div>}{step === 'profile' && <form onSubmit={continueProfile}><Field label="Mobile number"><div className="phone-input"><span>+91</span><input inputMode="numeric" value={mobile} readOnly aria-label="Registered mobile number" /></div></Field><Field label="Owner name"><input value={profile.ownerName} onChange={event => setProfile(current => ({ ...current, ownerName: event.target.value }))} placeholder="Your full name" autoFocus /></Field><Field label="Salon name"><input value={profile.salonName} onChange={event => setProfile(current => ({ ...current, salonName: event.target.value }))} placeholder="What is your salon called?" /></Field><Field label="Address line 1"><textarea rows="3" value={profile.addressLine1} onChange={event => setProfile(current => ({ ...current, addressLine1: event.target.value }))} placeholder="Area, street, building" /></Field><Field label="Address line 2" hint="Optional"><input value={profile.addressLine2} onChange={event => setProfile(current => ({ ...current, addressLine2: event.target.value }))} placeholder="Landmark" /></Field><div className="form-two-col"><Field label="City"><input value={profile.city} onChange={event => setProfile(current => ({ ...current, city: event.target.value }))} placeholder="City" /></Field><SelectField label="State" value={profile.state} onChange={event => setProfile(current => ({ ...current, state: event.target.value }))} options={STATE_OPTIONS} placeholder="Select state" /></div><div className="form-two-col"><Field label="Pincode" hint="Optional"><input inputMode="numeric" maxLength="6" value={profile.pincode} onChange={event => setProfile(current => ({ ...current, pincode: event.target.value.replace(/\D/g, '').slice(0, 6) }))} placeholder="Pincode" /></Field><Field label="Email" hint="Optional"><input type="email" value={profile.email} onChange={event => setProfile(current => ({ ...current, email: event.target.value }))} placeholder="owner@example.com" /></Field></div><div className={cx('registration-location', latitude !== null && longitude !== null && 'ready')}><MapPin size={15} /><span>{latitude !== null && longitude !== null ? `Location ready · ${Number(latitude).toFixed(4)}, ${Number(longitude).toFixed(4)}` : locationError || 'Detecting salon location…'}</span><button type="button" onClick={detectLocation} disabled={locationBusy}>{locationBusy ? 'Detecting…' : 'Retry'}</button></div><Button type="submit">Next <ChevronRight size={17} /></Button></form>}{step === 'business' && <form onSubmit={continueBusiness}><label className="field"><span className="field-label">Salon type</span><div className="type-option-grid">{['MALE', 'FEMALE', 'UNISEX'].map(type => <button type="button" key={type} className={business.genderType === type ? 'active' : ''} onClick={() => setBusiness(current => ({ ...current, genderType: type }))}>{type === 'UNISEX' ? 'Unisex' : `${type.charAt(0)}${type.slice(1).toLowerCase()}`}</button>)}</div></label><div className="form-two-col"><Field label="Opens"><input type="time" value={business.openingTime} onChange={event => setBusiness(current => ({ ...current, openingTime: event.target.value }))} /></Field><Field label="Closes"><input type="time" value={business.closingTime} onChange={event => setBusiness(current => ({ ...current, closingTime: event.target.value }))} /></Field></div><Field label="Agent code" hint="Optional · exactly 10 digits"><input inputMode="numeric" maxLength="10" value={business.agentCode} onChange={event => setBusiness(current => ({ ...current, agentCode: event.target.value.replace(/\D/g, '').slice(0, 10) }))} placeholder="Optional agent code" /></Field><Button type="submit" loading={busy}>Choose a plan <ChevronRight size={17} /></Button></form>}</div></div>;
 }
 function Brand({ light = false }) {
-  return <div className={cx('brand', light && 'brand-light')}><div className="brand-symbol"><svg viewBox="0 0 64 64" aria-hidden="true" focusable="false"><g fill="currentColor"><polygon points="21,19 27,19 30.5,28 16,28" /><polygon points="37,19 43,19 47,28 33,28" /><polygon points="31.5,27.5 41.5,27.5 39.5,34.5 29,34.5" /><rect x="13" y="33.5" width="37.5" height="2" /><polygon points="13,34.5 23.5,34.5 18.75,44 9,44" /><polygon points="25.5,34.5 38.5,34.5 35,44 29,44" /><polygon points="40.5,34.5 50.5,34.5 54.5,44 45,44" /></g></svg></div><span>My <span>Naai</span></span></div>;
+  return (
+    <div className={cx('brand', light && 'brand-light')} aria-label="My Naai">
+      <img className="brand-mark" src="/assets/my_naai.png" alt="" />
+      <span className="brand-wordmark">
+        <span className="brand-m">M</span>
+        <span className="brand-rest">y Naai</span>
+      </span>
+    </div>
+  );
 }
 
 function AppShell({ session, route, navigate, onLogout, onSessionUpdate, notifyInstall }) {

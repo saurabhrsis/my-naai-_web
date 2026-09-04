@@ -169,12 +169,14 @@ export function Spinner({ label = '', size = 22 }) {
 export function ImageWithFallback({ src, fallback = '/assets/brand/naai-logo-dark.svg', alt = '', className = '', ...props }) {
   const [current, setCurrent] = useState(src ? getFileUrl(src) : fallback);
   useEffect(() => setCurrent(src ? getFileUrl(src) : fallback), [src, fallback]);
+  const resolved = current || fallback;
+  if (!resolved) return <span className={className} aria-hidden="true" />;
   return (
     <img
-      src={current || fallback}
+      src={resolved}
       alt={alt}
       className={className}
-      onError={() => { if (current !== fallback) setCurrent(fallback); }}
+      onError={() => { if (fallback && current !== fallback) setCurrent(fallback); }}
       {...props}
     />
   );
@@ -304,13 +306,13 @@ export function Toggle({ checked, onChange, label, disabled = false }) {
   return <label className={cx('toggle', disabled && 'disabled')}><input type="checkbox" checked={checked} onChange={event => onChange?.(event.target.checked)} disabled={disabled} /><span className="toggle-track"><i /></span>{label && <span>{label}</span>}</label>;
 }
 
-export function getBrowserLocation() {
+export function getBrowserLocation(options = {}) {
   return new Promise(resolve => {
     if (!navigator.geolocation) return resolve(null);
     navigator.geolocation.getCurrentPosition(
       position => resolve({ latitude: position.coords.latitude, longitude: position.coords.longitude }),
       () => resolve(null),
-      { enableHighAccuracy: false, timeout: 7000, maximumAge: 300000 },
+      { enableHighAccuracy: false, timeout: 7000, maximumAge: 300000, ...options },
     );
   });
 }

@@ -349,7 +349,7 @@ export async function getPushDiagnostics() {
     ? 'This is the value sent to the API as deviceToken.'
     : Notification.permission === 'granted'
       ? 'Permission is granted but no token exists yet — the worker or Firebase config is the problem, not the browser.'
-      : 'Sign-in needs a token: allow notifications, then sign in again.');
+      : 'Sign-in needs a token: tap Enable, allow notifications, then sign in again.');
 
   const last = readForegroundMessageRecord();
   add('Last foreground message', last ? 'ok' : 'warn', last ? `${last.type || 'notification'} · ${new Date(last.at).toLocaleString('en-IN')}` : 'None received yet', last ? '' : 'Send a test notification while this tab is open to verify delivery.');
