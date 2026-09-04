@@ -34,7 +34,8 @@ import {
   X,
   Zap,
 } from 'lucide-react';
-import { api, getFileUrl } from '../lib/api';
+import { api } from '../lib/api';
+import { normalizeAdImages } from '../lib/ads';
 import { getNotificationRoute, isActionableNotification } from '../lib/push';
 
 import { subscribeToLiveUpdates } from '../lib/socket';
@@ -112,27 +113,47 @@ function getBookingStatus(item) {
 
 function AdCarousel({ ads }) {
   const [active, setActive] = useState(0);
-  const timerRef = useRef(null);
-  const slides = ads || [];
+  const [paused, setPaused] = useState(false);
+  const startX = useRef(0);
+  const slides = Array.isArray(ads) ? ads.filter(item => typeof item === 'string' && item) : [];
   useEffect(() => {
-    if (!slides.length) return undefined;
-    if (slides.length < 2) return undefined;
-    timerRef.current = window.setInterval(() => setActive(index => (index + 1) % slides.length), 4200);
-    return () => window.clearInterval(timerRef.current);
-  }, [slides.length]);
+    if (paused || slides.length < 2) return undefined;
+    const timer = window.setInterval(() => setActive(index => (index + 1) % slides.length), 3000);
+    return () => window.clearInterval(timer);
+  }, [paused, slides.length]);
   useEffect(() => { if (active >= slides.length) setActive(0); }, [active, slides.length]);
   if (!slides.length) return null;
-  const item = slides[active] || slides[0];
+  const go = offset => setActive(index => (index + offset + slides.length) % slides.length);
   return (
-    <div className="ad-carousel" aria-label="My Naai highlights">
-      <ImageWithFallback src={item.src || item} fallback="/assets/naai/ad1.jpg" alt="Salon styling" className="ad-image" />
-      <div className="ad-shade" />
-      <div className="ad-copy">
-        <span className="ad-kicker">{item.kicker || 'My Naai picks'}</span>
-        <h2>{item.title || 'A better look starts here'}</h2>
-        <span className="ad-action">Explore salons <ArrowRight size={15} /></span>
+    <div className="ad-carousel-wrap">
+      <div
+        className="ad-carousel"
+        aria-label="Promotions"
+        onPointerDown={event => { startX.current = event.clientX; setPaused(true); }}
+        onPointerUp={event => {
+          const delta = event.clientX - startX.current;
+          if (delta > 40) go(-1);
+          else if (delta < -40) go(1);
+          setPaused(false);
+        }}
+        onPointerCancel={() => setPaused(false)}
+        onPointerLeave={() => setPaused(false)}
+      >
+        <div className="ad-track" style={{ transform: `translateX(-${active * 100}%)` }}>
+          {slides.map((src, index) => (
+            <div className="ad-slide" key={`${src}-${index}`}>
+              <ImageWithFallback src={src} fallback="" alt="" className="ad-image" />
+            </div>
+          ))}
+        </div>
       </div>
-      <div className="carousel-dots">{slides.map((slide, index) => <button key={slide.src || index} aria-label={`Show slide ${index + 1}`} className={cx('carousel-dot', index === active && 'active')} onClick={() => setActive(index)} />)}</div>
+      {slides.length > 1 && (
+        <div className="carousel-dots">
+          {slides.map((src, index) => (
+            <button key={`${src}-dot-${index}`} type="button" aria-label={`Show promotion ${index + 1}`} className={cx('carousel-dot', index === active && 'active')} onClick={() => setActive(index)} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -158,7 +179,7 @@ function SalonCard({ salon, saved, onSelect, onBookmark, userLocation }) {
         <button className={cx('bookmark-button', saved && 'saved')} onClick={event => { event.stopPropagation(); onBookmark(salon.id); }} aria-label={saved ? 'Remove bookmark' : 'Save salon'}>{saved ? <BookmarkCheck size={18} fill="currentColor" /> : <Bookmark size={18} />}</button>
       </div>
       <div className="salon-card-body">
-        <div className="salon-card-heading"><div><span className="salon-type">{salon.genderType || 'UNISEX'} SALON</span><h3>{salon.name}</h3></div><Rating value={salon.rating} reviews={salon.reviews} /></div>
+        <div className="salon-card-heading"><div><span className="salon-type">{salon.genderType || 'UNISEX'} SALON</span><h3>{salon.name}</h3></div></div>
         <button className="salon-address" onClick={openMap}><MapPin size={14} /> <span>{salon.address}</span></button>
         <div className="salon-card-footer"><span className="wait-copy"><Clock3 size={14} /> {salon.isOpen ? salon.waitTime : 'Come back later'}</span><button className={cx('card-book-button', !salon.isOpen && 'disabled')} disabled={!salon.isOpen} onClick={event => { event.stopPropagation(); onSelect(salon); }}>{salon.isOpen ? 'Book now' : 'Closed'}</button></div>
       </div>
@@ -177,6 +198,15 @@ export function HomeScreen({ session, navigate, notify }) {
   const [loadError, setLoadError] = useState('');
   const [userName, setUserName] = useState(session.user?.fullName || '');
   const requestId = useRef(0);
+
+  // Ads are loaded once, independently of search/gender, matching NaaiDashboard.
+  useEffect(() => {
+    let cancelled = false;
+    api.userAds()
+      .then(response => { if (!cancelled) setAds(normalizeAdImages(response)); })
+      .catch(() => { if (!cancelled) setAds([]); });
+    return () => { cancelled = true; };
+  }, []);
 
   const loadData = useCallback(async () => {
     const id = ++requestId.current;
@@ -198,17 +228,10 @@ export function HomeScreen({ session, navigate, notify }) {
     };
 
     try {
-      const [salonResult, adResult] = await Promise.allSettled([
-        api.userSalonList(salonPayload),
-        api.userAds(),
-      ]);
+      const salonResult = await api.userSalonList(salonPayload);
       if (id !== requestId.current) return;
 
-      if (salonResult.status === 'rejected') {
-        throw salonResult.reason;
-      }
-
-      const raw = getList(salonResult.value, ['salons', 'plans']);
+      const raw = getList(salonResult, ['salons', 'plans']);
       const decorated = raw.map(item => {
         const normalized = normalizeSalon(item);
         const distance = currentLocation
@@ -241,11 +264,6 @@ export function HomeScreen({ session, navigate, notify }) {
       if (apiSavedId) {
         setSavedId(apiSavedId);
         localStorage.setItem('mynaaiSavedSalonId', String(apiSavedId));
-      }
-
-      if (adResult.status === 'fulfilled') {
-        const images = adResult.value?.data?.images || [];
-        setAds(images.map(src => ({ src, title: 'Good hair days, on demand', kicker: 'Book your time — skip the queue' })));
       }
 
       // Profile loading should not turn a successful salon-list response into
@@ -408,7 +426,7 @@ export function SalonDetailScreen({ params, navigate, notify }) {
   const images = details.images?.length ? details.images : [details.image];
   const status = getSalonStatus(details.businessHours, details.isOpen);
   const hours = details.businessHours?.[0];
-  return <div className="screen detail-screen"><PageHeader title={details.name} subtitle={`${details.genderType || 'UNISEX'} salon`} onBack={() => navigate(-1)} action={<button className="icon-btn ghost" onClick={() => window.open(`tel:${details.phoneNumber || ''}`)} aria-label="Call salon"><Phone size={18} /></button>} /><div className="detail-hero"><div className="detail-gallery"><ImageWithFallback src={images[active]} fallback={USER_FALLBACK_IMAGE} alt={details.name} className="detail-main-image" onClick={() => setImageOpen(true)} /><button className="gallery-expand" onClick={() => setImageOpen(true)} aria-label="Open image"><ExternalLink size={16} /></button>{images.length > 1 && <div className="gallery-thumbs">{images.map((image, index) => <button key={`${image}-${index}`} className={index === active ? 'active' : ''} onClick={() => setActive(index)}><ImageWithFallback src={image} fallback={USER_FALLBACK_IMAGE} alt="" /></button>)}</div>}</div><div className="detail-overview"><div className="detail-title-row"><div><span className="salon-type">{details.genderType || 'UNISEX'} SALON</span><h2>{details.name}</h2></div><Rating value={details.rating} reviews={details.reviews} light /></div><div className="detail-status-line"><StatusPill tone={status.isOpen ? 'open' : 'closed'} dot>{status.text}</StatusPill>{hours && <span><Clock3 size={14} /> {formatTime(hours.openingTime)} – {formatTime(hours.closingTime)}</span>}</div><button className="detail-location" onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${details.latitude},${details.longitude}`, '_blank', 'noopener,noreferrer')}><MapPin size={17} /><span>{details.address || 'Address unavailable'}</span><ExternalLink size={14} /></button><div className="detail-stat-grid"><div><Timer size={17} /><span><small>Current wait</small><strong>{details.waitTime || '10–15 min'}</strong></span></div><div><Scissors size={17} /><span><small>Services</small><strong>{details.services?.length || 0} to choose</strong></span></div><div><ShieldCheck size={17} /><span><small>Reviews</small><strong>{details.reviews || 0} verified</strong></span></div></div><div className="arrival-note"><Zap size={16} /><span><strong>Before you arrive</strong> Come 10 minutes before your slot and follow the latest appointment status.</span></div></div></div><section className="detail-section"><div className="section-heading compact"><div><span className="eyebrow">WHAT THEY OFFER</span><h2>Services & specialists</h2></div><span className="muted-line">{details.barbers?.length || 0} specialists</span></div><div className="service-preview-grid">{(details.services || []).slice(0, 4).map(service => <div className="service-preview" key={service.serviceId || service.id}><Scissors size={15} /><span>{service.serviceName || service.name}</span><strong>{formatCurrency(service.price)}</strong></div>)}</div></section><div className="sticky-continue"><div><span>Ready when you are?</span><small>Select services and a time slot</small></div><Button onClick={() => navigate('services', { salon: details, salonId: details.id })}>Continue <ArrowRight size={17} /></Button></div><Modal open={imageOpen} onClose={() => setImageOpen(false)} title={details.name} size="image"><ImageWithFallback src={images[active]} fallback={USER_FALLBACK_IMAGE} alt={details.name} className="modal-full-image" /></Modal></div>;
+  return <div className="screen detail-screen"><PageHeader title={details.name} subtitle={`${details.genderType || 'UNISEX'} salon`} onBack={() => navigate(-1)} action={<button className="icon-btn ghost" onClick={() => window.open(`tel:${details.phoneNumber || ''}`)} aria-label="Call salon"><Phone size={18} /></button>} /><div className="detail-hero"><div className="detail-gallery"><ImageWithFallback src={images[active]} fallback={USER_FALLBACK_IMAGE} alt={details.name} className="detail-main-image" onClick={() => setImageOpen(true)} /><button className="gallery-expand" onClick={() => setImageOpen(true)} aria-label="Open image"><ExternalLink size={16} /></button>{images.length > 1 && <div className="gallery-thumbs">{images.map((image, index) => <button key={`${image}-${index}`} className={index === active ? 'active' : ''} onClick={() => setActive(index)}><ImageWithFallback src={image} fallback={USER_FALLBACK_IMAGE} alt="" /></button>)}</div>}</div><div className="detail-overview"><div className="detail-title-row"><div><span className="salon-type">{details.genderType || 'UNISEX'} SALON</span><h2>{details.name}</h2></div></div><div className="detail-status-line"><StatusPill tone={status.isOpen ? 'open' : 'closed'} dot>{status.text}</StatusPill>{hours && <span><Clock3 size={14} /> {formatTime(hours.openingTime)} – {formatTime(hours.closingTime)}</span>}</div><button className="detail-location" onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${details.latitude},${details.longitude}`, '_blank', 'noopener,noreferrer')}><MapPin size={17} /><span>{details.address || 'Address unavailable'}</span><ExternalLink size={14} /></button><div className="detail-stat-grid"><div><Timer size={17} /><span><small>Current wait</small><strong>{details.waitTime || '10–15 min'}</strong></span></div><div><Scissors size={17} /><span><small>Services</small><strong>{details.services?.length || 0} to choose</strong></span></div></div><div className="arrival-note"><Zap size={16} /><span><strong>Before you arrive</strong> Come 10 minutes before your slot and follow the latest appointment status.</span></div></div></div><section className="detail-section"><div className="section-heading compact"><div><span className="eyebrow">WHAT THEY OFFER</span><h2>Services & specialists</h2></div><span className="muted-line">{details.barbers?.length || 0} specialists</span></div><div className="service-preview-grid">{(details.services || []).slice(0, 4).map(service => <div className="service-preview" key={service.serviceId || service.id}><Scissors size={15} /><span>{service.serviceName || service.name}</span><strong>{formatCurrency(service.price)}</strong></div>)}</div></section><div className="sticky-continue"><div><span>Ready when you are?</span><small>Select services and a time slot</small></div><Button onClick={() => navigate('services', { salon: details, salonId: details.id })}>Continue <ArrowRight size={17} /></Button></div><Modal open={imageOpen} onClose={() => setImageOpen(false)} title={details.name} size="image"><ImageWithFallback src={images[active]} fallback={USER_FALLBACK_IMAGE} alt={details.name} className="modal-full-image" /></Modal></div>;
 }
 
 export function ServicesScreen({ params, navigate, notify }) {
@@ -417,7 +435,7 @@ export function ServicesScreen({ params, navigate, notify }) {
   const [selected, setSelected] = useState([]);
   const toggle = item => setSelected(current => current.some(value => (value.serviceId || value.id) === (item.serviceId || item.id)) ? current.filter(value => (value.serviceId || value.id) !== (item.serviceId || item.id)) : [...current, item]);
   const total = selected.reduce((sum, item) => sum + Number(item.price || 0), 0);
-  return <div className="screen services-screen"><PageHeader title="Select services" subtitle={salon.salonName || salon.name} onBack={() => navigate(-1)} /><div className="selection-summary"><span><Scissors size={17} /> Pick one or more</span><strong>{selected.length ? `${selected.length} selected · ${formatCurrency(total)}` : 'Nothing selected yet'}</strong></div>{services.length ? <div className="select-service-grid">{services.map(item => { const itemId = item.serviceId || item.id; const active = selected.some(value => (value.serviceId || value.id) === itemId); return <button key={itemId} className={cx('select-service-card', active && 'active')} onClick={() => toggle(item)}><span className="service-select-icon">{active ? <Check size={17} /> : <Scissors size={17} />}</span><span className="service-card-copy"><strong>{item.serviceName || item.name}</strong><small>{item.durationMinutes || item.duration || 30} min · {item.description || 'Professional salon service'}</small></span><b>{formatCurrency(item.price)}</b>{active && <span className="selected-check"><CheckCircle2 size={18} fill="currentColor" /></span>}</button>; })}</div> : <EmptyState icon={Scissors} title="No services listed" message="Please check back with this salon." />}{selected.length > 0 && <div className="sticky-continue"><div><span>{selected.length} service{selected.length > 1 ? 's' : ''}</span><small>Next, choose a specialist and time</small></div><Button onClick={() => navigate('schedule', { salon, selectedServices: selected })}>Choose a time <ArrowRight size={17} /></Button></div>}</div>;
+  return <div className="screen services-screen"><PageHeader title="Select services" subtitle={salon.salonName || salon.name} onBack={() => navigate(-1)} /><div className="selection-summary"><span><Scissors size={17} /> Pick one or more</span><strong>{selected.length ? `${selected.length} selected · ${formatCurrency(total)}` : 'Nothing selected yet'}</strong></div>{services.length ? <div className="select-service-grid">{services.map(item => { const itemId = item.serviceId || item.id; const active = selected.some(value => (value.serviceId || value.id) === itemId); return <button key={itemId} className={cx('select-service-card', active && 'active')} onClick={() => toggle(item)}><span className="service-select-icon">{active ? <Check size={17} /> : <Scissors size={17} />}</span><span className="service-card-copy"><strong>{item.serviceName || item.name}</strong><small>{item.durationMinutes || item.duration || 30} min · {item.description || 'Professional salon service'}</small></span><b>{formatCurrency(item.price)}</b></button>; })}</div> : <EmptyState icon={Scissors} title="No services listed" message="Please check back with this salon." />}{selected.length > 0 && <div className="sticky-continue"><div><span>{selected.length} service{selected.length > 1 ? 's' : ''}</span><small>Next, choose a specialist and time</small></div><Button onClick={() => navigate('schedule', { salon, selectedServices: selected })}>Choose a time <ArrowRight size={17} /></Button></div>}</div>;
 }
 
 function getServiceDurationMinutes(service = {}) {

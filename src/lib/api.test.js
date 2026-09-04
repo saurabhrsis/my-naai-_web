@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Avoid importing the whole network chain; test the token helpers that back the
 // service-worker auth mirror and the session shape used across the app.
-import { api, getToken, setToken, getServerUrl, resetPlanExpiredAlert } from './api';
+import { api, getFileUrl, getToken, setToken, getServerUrl, resetPlanExpiredAlert } from './api';
 
 beforeEach(() => {
   localStorage.clear();
@@ -32,6 +32,21 @@ describe('token helpers', () => {
 describe('getServerUrl', () => {
   it('never throws and returns a string', () => {
     expect(typeof getServerUrl()).toBe('string');
+  });
+});
+
+describe('getFileUrl', () => {
+  it('builds the same /getfiles path the mobile app uses', () => {
+    expect(getFileUrl('ads/banner.jpg').endsWith('/getfiles/ads/banner.jpg')).toBe(true);
+  });
+
+  it('keeps absolute URLs and local asset paths unchanged', () => {
+    expect(getFileUrl('https://cdn.example/ad.jpg')).toBe('https://cdn.example/ad.jpg');
+    expect(getFileUrl('/assets/brand/naai-logo-dark.svg')).toBe('/assets/brand/naai-logo-dark.svg');
+  });
+
+  it('normalizes an already-prefixed getFiles path to lowercase', () => {
+    expect(getFileUrl('/getFiles/ads/one.jpg').endsWith('/getfiles/ads/one.jpg')).toBe(true);
   });
 });
 

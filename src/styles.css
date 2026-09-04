@@ -136,16 +136,16 @@ img { display: block; max-width: 100%; }
 .next-circle { width: 55px; height: 55px; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: var(--gold); color: #0d0e0e; }
 /* "Let's Start" CTA on the final splash slide. */
 .lets-start-button { min-height: 55px; padding: 0 28px; border-radius: 30px; font-size: 15px; letter-spacing: .01em; box-shadow: 0 14px 40px rgba(0, 0, 0, .35); }
-/* The My Naai logo is the monochrome black tile with a white mark (matching
-   the app icon / naai-logo-dark.svg). It is intentionally NOT gold. The
-   wordmark reads "My Naai" (capitalised, two words) and is sized up on
-   desktop so it stays clearly visible on laptops and large monitors. */
-.brand { display: inline-flex; align-items: center; gap: 11px; color: var(--white); font-weight: 700; font-size: 24px; letter-spacing: -.04em; white-space: nowrap; }
-.brand > span > span { color: #ffffff; }
-.brand-symbol { width: 38px; height: 38px; display: flex; flex: none; align-items: center; justify-content: center; border-radius: 11px; background: #0a0a0a; color: #ffffff; border: 1px solid rgba(255, 255, 255, .18); }
-.brand-symbol svg { width: 25px; height: 25px; }
+/* Official My Naai mark (`my_naai.png` — the white geometric M) plus the
+   wordmark. The M of "My" is drawn larger so the name reads clearly next to
+   the logo tile. */
+.brand { display: inline-flex; align-items: center; gap: 10px; color: var(--white); white-space: nowrap; }
+.brand-mark { width: 46px; height: 46px; flex: none; object-fit: contain; border-radius: 13px; background: #050505; border: 1px solid rgba(232, 185, 126, .38); box-shadow: 0 0 0 3px rgba(232, 185, 126, .08); }
+.brand-wordmark { display: inline-flex; align-items: baseline; line-height: 1; letter-spacing: -.045em; }
+.brand-m { color: #ffffff; font-size: 30px; font-weight: 800; letter-spacing: -.06em; }
+.brand-rest { color: #f3efe8; font-size: 24px; font-weight: 700; }
 .brand-light { color: white; }
-.brand-light .brand-symbol { background: #0a0a0a; color: #ffffff; border-color: rgba(255, 255, 255, .28); }
+.brand-light .brand-mark { border-color: rgba(255, 255, 255, .28); }
 .login-page { display: grid; grid-template-columns: 1fr; }
 .auth-visual { display: none; position: relative; overflow: hidden; }
 .auth-visual-image { position: absolute; inset: 0; background: url('/assets/new_background.jpeg') center / cover; filter: saturate(.8); }
@@ -204,10 +204,10 @@ img { display: block; max-width: 100%; }
 .sidebar { display: none; }
 .workspace { min-width: 0; width: 100%; }
 .workspace-content { width: 100%; max-width: 1600px; min-height: 100svh; margin: 0 auto; padding: 17px 15px 95px; }
-.mobile-shell-bar { display: flex; align-items: center; justify-content: space-between; padding: 0 2px 16px; }
-.mobile-shell-bar .brand { font-size: 21px; }
-.mobile-shell-bar .brand-symbol { width: 30px; height: 30px; border-radius: 9px; }
-.mobile-shell-bar .brand-symbol svg { width: 20px; height: 20px; }
+.mobile-shell-bar { display: flex; align-items: center; justify-content: space-between; padding: 2px 2px 16px; }
+.mobile-shell-bar .brand-mark { width: 48px; height: 48px; border-radius: 14px; }
+.mobile-shell-bar .brand-m { font-size: 32px; }
+.mobile-shell-bar .brand-rest { font-size: 25px; }
 .mobile-menu-button { display: none; align-items: center; justify-content: center; width: 35px; height: 35px; border-radius: 50%; color: var(--white); background: var(--card); }
 .mobile-nav { position: fixed; z-index: 40; left: 10px; right: 10px; bottom: max(9px, env(safe-area-inset-bottom)); display: grid; grid-template-columns: repeat(4, 1fr); padding: 8px 5px 7px; border: 1px solid rgba(255,255,255,.1); border-radius: 20px; background: rgba(17,20,20,.94); box-shadow: 0 12px 45px rgba(0,0,0,.5); backdrop-filter: blur(18px); }
 .mobile-nav button { min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 3px 2px; color: #6f7978; background: transparent; font-size: 9px; font-weight: 700; white-space: nowrap; }
@@ -244,15 +244,14 @@ img { display: block; max-width: 100%; }
 .search-field input::placeholder { color: #707a79; }
 .search-field button { display: flex; padding: 2px; color: var(--muted); background: transparent; }
 .filter-button { min-width: 73px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 14px; color: var(--gold); background: var(--gold-wash); font-size: 10px; font-weight: 700; }
-.ad-carousel { position: relative; min-height: 164px; overflow: hidden; margin-bottom: 28px; border-radius: 21px; background: #1e2625; box-shadow: var(--shadow); }
-.ad-image { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: .88; }
-.ad-shade { position: absolute; inset: 0; background: linear-gradient(90deg, rgba(8,11,11,.9), rgba(8,11,11,.14) 68%, rgba(8,11,11,.36)); }
-.ad-copy { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; min-height: 164px; max-width: 255px; padding: 23px 21px; }
-.ad-kicker { color: var(--gold); font-size: 9px; letter-spacing: .15em; font-weight: 700; text-transform: uppercase; }
-.ad-copy h2 { margin: 8px 0 12px; font-size: clamp(21px, 5vw, 31px); line-height: 1.05; letter-spacing: -.045em; }
-.ad-action { display: inline-flex; align-items: center; gap: 6px; color: #f0e6d8; font-size: 11px; font-weight: 700; }
-.carousel-dots { position: absolute; z-index: 2; left: 21px; bottom: 13px; display: flex; gap: 5px; }
-.carousel-dot { width: 5px; height: 5px; padding: 0; border-radius: 5px; background: rgba(255,255,255,.35); }
+.ad-carousel-wrap { margin-bottom: 22px; }
+.ad-carousel { position: relative; overflow: hidden; border-radius: 16px; background: #1e2625; touch-action: pan-y; cursor: grab; }
+.ad-carousel:active { cursor: grabbing; }
+.ad-track { display: flex; transition: transform .35s ease; }
+.ad-slide { min-width: 100%; height: 176px; background: #1e2625; }
+.ad-image { width: 100%; height: 100%; object-fit: cover; }
+.carousel-dots { display: flex; justify-content: center; gap: 6px; margin-top: 10px; }
+.carousel-dot { width: 7px; height: 7px; padding: 0; border-radius: 7px; background: #555; }
 .carousel-dot.active { width: 18px; background: var(--gold); }
 .section-heading { display: flex; align-items: end; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
 .section-heading > div:first-child { min-width: 0; }
@@ -384,7 +383,7 @@ img { display: block; max-width: 100%; }
 .detail-location svg:first-child { flex: none; }
 .detail-location span { flex: 1; }
 .detail-location svg:last-child { flex: none; margin-top: 2px; color: var(--muted); }
-.detail-stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; margin-top: 19px; }
+.detail-stat-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 7px; margin-top: 19px; }
 .detail-stat-grid > div { display: flex; align-items: flex-start; gap: 6px; padding: 10px 7px; border-radius: 11px; background: #121717; }
 .detail-stat-grid svg { flex: none; color: var(--gold); }
 .detail-stat-grid span { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
@@ -416,7 +415,6 @@ img { display: block; max-width: 100%; }
 .service-card-copy strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .service-card-copy small { overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .select-service-card > b { color: var(--gold); font-size: 11px; }
-.selected-check { position: absolute; top: 8px; right: 8px; color: var(--gold); }
 .schedule-section { margin-bottom: 23px; }
 .section-label { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; color: var(--white); font-size: 13px; font-weight: 700; }
 .section-label > svg { color: var(--gold); }
@@ -492,7 +490,7 @@ img { display: block; max-width: 100%; }
 .salon-live-status strong { font-size: 12px; }
 .salon-live-status small { color: var(--muted); font-size: 9px; line-height: 1.3; }
 .salon-live-status .toggle { flex: none; flex-direction: column-reverse; gap: 5px; color: var(--gold); font-weight: 700; }
-.salon-profile-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; margin-bottom: 15px; }
+.salon-profile-stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 7px; margin-bottom: 15px; }
 .salon-profile-stats > div { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 11px 5px; border-radius: 12px; background: var(--card); }
 .salon-profile-stats strong { color: var(--gold); font-size: 17px; }
 .salon-profile-stats span { color: var(--muted); font-size: 9px; }
@@ -577,6 +575,11 @@ img { display: block; max-width: 100%; }
 .push-setup-compact { margin: 18px 0 0; max-width: 520px; background: rgba(0,0,0,.28); }
 .push-setup-compact .push-setup-copy strong { font-size: 11px; }
 .push-setup-compact .push-setup-copy p { color: #c6cbca; }
+.permission-prompt-stack { display: flex; flex-direction: column; gap: 8px; margin: 0 0 16px; }
+.permission-prompt-stack:empty { display: none; margin: 0; }
+.permission-prompt-stack .push-setup-card { margin: 0; }
+.permission-prompt-compact { margin: 18px 0 0; max-width: 520px; }
+.permission-prompt-compact .push-setup-card { margin: 0; }
 
 /* Salon editor and subscription */
 .subscription-gate-shell { display: block; }
@@ -854,9 +857,7 @@ img { display: block; max-width: 100%; }
   .home-topline { margin-bottom: 23px; }
   .home-search-row { max-width: 720px; }
   .filter-button { min-width: 92px; flex-direction: row; gap: 6px; }
-  .ad-carousel { min-height: 220px; }
-  .ad-copy { min-height: 220px; padding: 31px 30px; max-width: 380px; }
-  .ad-copy h2 { font-size: 34px; }
+  .ad-slide { height: 230px; }
   .salon-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
   .salon-card-image-wrap { height: 220px; }
   .product-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
@@ -896,13 +897,13 @@ img { display: block; max-width: 100%; }
 @media (min-width: 1024px) {
   .app-shell { display: flex; }
   .sidebar { position: sticky; top: 0; width: 252px; height: 100svh; flex: none; display: flex; flex-direction: column; padding: 29px 18px 21px; border-right: 1px solid var(--line); background: #0d1010; }
-  .sidebar > .brand { padding: 0 11px; margin-bottom: 28px; font-size: 31px; gap: 13px; }
-  .sidebar > .brand .brand-symbol { width: 50px; height: 50px; border-radius: 15px; }
-  .sidebar > .brand .brand-symbol svg { width: 33px; height: 33px; }
-  /* Larger logo on the wide login/onboarding layouts too. */
-  .auth-visual .brand { font-size: 28px; gap: 12px; }
-  .auth-visual .brand-symbol { width: 44px; height: 44px; border-radius: 13px; }
-  .auth-visual .brand-symbol svg { width: 29px; height: 29px; }
+  .sidebar > .brand { padding: 0 8px; margin-bottom: 28px; gap: 12px; }
+  .sidebar > .brand .brand-mark { width: 58px; height: 58px; border-radius: 16px; }
+  .sidebar > .brand .brand-m { font-size: 34px; }
+  .sidebar > .brand .brand-rest { font-size: 27px; }
+  .auth-visual .brand-mark { width: 54px; height: 54px; border-radius: 15px; }
+  .auth-visual .brand-m { font-size: 32px; }
+  .auth-visual .brand-rest { font-size: 26px; }
   .sidebar-role { display: flex; align-items: center; gap: 10px; padding: 11px; margin-bottom: 18px; border-radius: 13px; background: rgba(255,255,255,.035); }
   .role-mark { width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: 9px; color: #111; background: var(--gold); }
   .sidebar-role > span:last-child { display: flex; flex-direction: column; gap: 4px; }

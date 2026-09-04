@@ -334,7 +334,7 @@ export function SubscriptionScreen({ params = {}, session, navigate, notify, onA
     setNotice(null);
     if (showFreeOnboarding && plan.id === FREE_ONBOARDING_PLAN.id) return completeFreeOnboarding();
     if (isRegistration && !String(registrationData?.deviceToken || '').trim()) {
-      return notify?.('error', 'Browser notifications must be enabled before salon registration can continue.');
+      return notify?.('error', 'Enable notifications, then continue. A device token is required to register the salon.');
     }
     inFlight.current = true;
     setLoading(true);
