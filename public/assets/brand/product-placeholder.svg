@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="No product photo">
+  <!-- Neutral product placeholder (jar with lid): same near-black tile and white
+       mark language as the official MyNaai logo, so a catalog item without an
+       uploaded photo never shows an unrelated stock picture. -->
+  <rect width="512" height="512" rx="96" fill="#0a0a0a" />
+  <g fill="#ffffff" opacity=".88">
+    <rect x="200" y="104" width="112" height="44" rx="14" />
+    <path d="M182 172h148a26 26 0 0 1 26 26v180a34 34 0 0 1-34 34H190a34 34 0 0 1-34-34V198a26 26 0 0 1 26-26z" />
+    <rect x="196" y="238" width="120" height="86" rx="14" fill="#0a0a0a" />
+    <rect x="214" y="262" width="84" height="10" rx="5" fill="#ffffff" opacity=".9" />
+    <rect x="226" y="286" width="60" height="10" rx="5" fill="#ffffff" opacity=".55" />
+  </g>
+</svg>

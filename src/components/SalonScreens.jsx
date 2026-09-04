@@ -39,6 +39,7 @@ import { normalizePlanDetails } from '../lib/planDetails';
 import { STATE_OPTIONS } from '../lib/stateOptions';
 import { SALON_ABOUT_CONTENT, SALON_FAQ_CONTENT, SALON_TERMS_CONTENT } from '../lib/salonContent';
 import { NotificationDiagnostics } from './NotificationDiagnostics';
+import { LOGOUT_CONFIRM, useConfirm } from './ConfirmDialog';
 import { subscribeToLiveUpdates } from '../lib/socket';
 import {
   Button,
@@ -97,6 +98,7 @@ function isSameDate(value, offset = 0) {
 
 
 export function SalonQueueScreen({ session, navigate, notify }) {
+  const confirm = useConfirm();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [doneId, setDoneId] = useState('');
@@ -109,7 +111,18 @@ export function SalonQueueScreen({ session, navigate, notify }) {
   // blocked WebSocket upgrade degrades gracefully instead of failing outright.
   useEffect(() => subscribeToLiveUpdates({ scope: 'salon', id: session.userId, event: 'queue_updated', handler: () => load(true) }), [load, session.userId]);
   const markDone = async bookingId => {
-    if (!window.confirm('Mark this service as completed?')) return;
+    // In-app sheet, never window.confirm: an installed PWA cannot style the
+    // native dialog, and on some Android builds it is suppressed entirely, which
+    // made "Done" look like a dead button.
+    const confirmed = await confirm({
+      title: 'Mark this service as completed?',
+      message: 'The appointment closes and moves to your customer history.',
+      confirmLabel: 'Mark done',
+      cancelLabel: 'Not yet',
+      tone: 'success',
+      icon: CheckCircle2,
+    });
+    if (!confirmed) return;
     setDoneId(bookingId);
     try { const response = await api.bookingDone({ salonId: session.userId, bookingId }); if (response?.status && response.status !== 'SUCCESS') throw new Error(response.message || 'Could not complete service'); setItems(current => current.filter(item => item.bookingId !== bookingId)); notify?.('success', 'Service marked as completed.'); } catch (error) { notify?.('error', getErrorMessage(error, 'Could not complete service.')); } finally { setDoneId(''); }
   };
@@ -128,6 +141,7 @@ export function SalonHistoryScreen({ notify }) {
 function normalizeProduct(item = {}) { return { ...item, id: item.productId || item.id, name: item.productName || item.name || 'Unnamed product', price: item.price || 0, rating: Number(item.rating || 0), available: item.isAvailable ?? item.available ?? true, image: item.productImage || item.image || '' }; }
 
 export function SalonProductsScreen({ notify }) {
+  const confirm = useConfirm();
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
@@ -155,15 +169,29 @@ export function SalonProductsScreen({ notify }) {
     } catch (error) { notify?.('error', getErrorMessage(error, 'Could not save product.')); } finally { setSaving(false); }
   };
   const remove = async item => {
-    if (!window.confirm(`Delete ${item.name}?`)) return;
+    const confirmed = await confirm({
+      title: `Delete ${item.name}?`,
+      message: 'It is removed from the customer product shelf straight away.',
+      confirmLabel: 'Delete',
+      cancelLabel: 'Keep it',
+      tone: 'danger',
+      icon: Trash2,
+    });
+    if (!confirmed) return;
     try { const response = await api.deleteProduct(item.id); if (response?.status && response.status !== 'SUCCESS') throw new Error(response.message || 'Could not delete product'); setProducts(current => current.filter(value => value.id !== item.id)); notify?.('success', 'Product deleted.'); } catch (error) { notify?.('error', getErrorMessage(error, 'Could not delete product.')); }
   };
   const toggle = async item => {
     const next = { ...item, available: !item.available }; setProducts(current => current.map(value => value.id === item.id ? next : value));
     try { await api.updateProductList({ productId: item.id, productName: item.name, price: item.price, rating: item.rating, isAvailable: next.available, productImage: item.image || '' }); } catch (error) { setProducts(current => current.map(value => value.id === item.id ? item : value)); notify?.('error', getErrorMessage(error, 'Availability could not be updated.')); }
   };
-  return <div className="screen salon-products-screen"><PageHeader title="Product catalog" subtitle="Manage the products customers can discover." action={<Button size="small" onClick={openAdd}><Plus size={16} /> Add product</Button>} />{loading ? <div className="product-grid">{[1, 2, 3, 4].map(item => <SkeletonCard key={item} />)}</div> : products.length ? <div className="product-grid salon-product-grid">{products.map(item => <article className="product-card salon-product-card" key={item.id}><div className="product-image-wrap"><ImageWithFallback src={item.image} fallback="/assets/naai/ad2.jpg" alt={item.name} className="product-image" /><span className={cx('stock-label', item.available ? 'in-stock' : 'out-stock')}>{item.available ? 'In stock' : 'Out of stock'}</span></div><div className="product-copy"><h3>{item.name}</h3><div className="product-price-row"><strong>{formatCurrency(item.price)}</strong><Rating value={item.rating} /></div><div className="product-manage-row"><Toggle checked={item.available} onChange={() => toggle(item)} label={item.available ? 'Available' : 'Hidden'} /><div><button className="small-icon-button" onClick={() => openEdit(item)} aria-label={`Edit ${item.name}`}><Pencil size={15} /></button><button className="small-icon-button danger" onClick={() => remove(item)} aria-label={`Delete ${item.name}`}><Trash2 size={15} /></button></div></div></div></article>)}</div> : <EmptyState icon={Package} title="No products yet" message="Add your first product to the customer shelf." action={<Button onClick={openAdd}><Plus size={16} /> Add product</Button>} />}<Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? 'Edit product' : 'Add product'}><form className="modal-form" onSubmit={save}><Field label="Product image" hint="Optional · JPG or PNG"><label className="image-upload-box">{form.preview ? <img src={form.preview} alt="Product preview" /> : <><ImagePlus size={24} /><span>Choose an image</span></>}<input type="file" accept="image/*" onChange={event => { const file = event.target.files?.[0]; if (file) setForm(current => ({ ...current, imageFile: file, preview: URL.createObjectURL(file) })); }} /></label></Field><Field label="Product name"><input value={form.productName} onChange={event => setForm(current => ({ ...current, productName: event.target.value }))} placeholder="e.g. Matte Clay Pomade" autoFocus /></Field><div className="form-two-col"><Field label="Price"><input type="number" min="0" value={form.price} onChange={event => setForm(current => ({ ...current, price: event.target.value }))} placeholder="499" /></Field><Field label="Rating"><input type="number" min="0" max="5" step="0.1" value={form.rating} onChange={event => setForm(current => ({ ...current, rating: event.target.value }))} placeholder="4.8" /></Field></div><div className="switch-form-row"><span><strong>Available for customers</strong><small>Show this product on the shelf</small></span><Toggle checked={form.isAvailable} onChange={value => setForm(current => ({ ...current, isAvailable: value }))} /></div><div className="form-actions"><Button type="button" variant="secondary" onClick={() => setModalOpen(false)}>Cancel</Button><Button type="submit" loading={saving}>{editing ? 'Save changes' : 'Add product'}</Button></div></form></Modal></div>;
+  return <div className="screen salon-products-screen"><PageHeader title="Product catalog" subtitle="Manage the products customers can discover." action={<Button size="small" onClick={openAdd}><Plus size={16} /> Add product</Button>} />{loading ? <div className="product-grid">{[1, 2, 3, 4].map(item => <SkeletonCard key={item} />)}</div> : products.length ? <div className="product-grid salon-product-grid">{products.map(item => <article className="product-card salon-product-card" key={item.id}><div className="product-image-wrap"><ImageWithFallback src={item.image} fallback={PRODUCT_PLACEHOLDER} alt={item.name} className="product-image" /><span className={cx('stock-label', item.available ? 'in-stock' : 'out-stock')}>{item.available ? 'In stock' : 'Out of stock'}</span></div><div className="product-copy"><h3>{item.name}</h3><div className="product-price-row"><strong>{formatCurrency(item.price)}</strong><Rating value={item.rating} /></div><div className="product-manage-row"><Toggle checked={item.available} onChange={() => toggle(item)} label={item.available ? 'Available' : 'Hidden'} /><div><button className="small-icon-button" onClick={() => openEdit(item)} aria-label={`Edit ${item.name}`}><Pencil size={15} /></button><button className="small-icon-button danger" onClick={() => remove(item)} aria-label={`Delete ${item.name}`}><Trash2 size={15} /></button></div></div></div></article>)}</div> : <EmptyState icon={Package} title="No products yet" message="Add your first product to the customer shelf." action={<Button onClick={openAdd}><Plus size={16} /> Add product</Button>} />}<Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? 'Edit product' : 'Add product'}><form className="modal-form" onSubmit={save}><Field label="Product image" hint="Optional · JPG or PNG"><label className="image-upload-box">{form.preview ? <img src={form.preview} alt="Product preview" /> : <><ImagePlus size={24} /><span>Choose an image</span></>}<input type="file" accept="image/*" onChange={event => { const file = event.target.files?.[0]; if (file) setForm(current => ({ ...current, imageFile: file, preview: URL.createObjectURL(file) })); }} /></label></Field><Field label="Product name"><input value={form.productName} onChange={event => setForm(current => ({ ...current, productName: event.target.value }))} placeholder="e.g. Matte Clay Pomade" autoFocus /></Field><div className="form-two-col"><Field label="Price"><input type="number" min="0" value={form.price} onChange={event => setForm(current => ({ ...current, price: event.target.value }))} placeholder="499" /></Field><Field label="Rating"><input type="number" min="0" max="5" step="0.1" value={form.rating} onChange={event => setForm(current => ({ ...current, rating: event.target.value }))} placeholder="4.8" /></Field></div><div className="switch-form-row"><span><strong>Available for customers</strong><small>Show this product on the shelf</small></span><Toggle checked={form.isAvailable} onChange={value => setForm(current => ({ ...current, isAvailable: value }))} /></div><div className="form-actions"><Button type="button" variant="secondary" onClick={() => setModalOpen(false)}>Cancel</Button><Button type="submit" loading={saving}>{editing ? 'Save changes' : 'Add product'}</Button></div></form></Modal></div>;
 }
+
+// On-brand placeholders: a catalog item or specialist without an uploaded photo
+// shows a neutral tile instead of an unrelated stock picture, letterboxed by
+// .image-fallback-tile on the branded gradient.
+const PRODUCT_PLACEHOLDER = '/assets/brand/product-placeholder.svg';
+const PERSON_PLACEHOLDER = '/assets/brand/person-placeholder.svg';
 
 const MAX_IMAGE_MB = 2;
 const MAX_IMAGES = 4;
@@ -193,6 +221,13 @@ function normalizeBarber(item = {}, index = 0) {
   };
 }
 
+// "MALE" -> "Male", "UNISEX" -> "Unisex": the label used in the salon-type
+// picker, the Load Default Services button and the confirmation copy.
+function salonTypeLabel(type) {
+  const value = String(type || '').trim();
+  return value ? value.charAt(0) + value.slice(1).toLowerCase() : '';
+}
+
 function isNewEditorRecord(id) {
   const value = String(id || '');
   return !value || value.startsWith('new-') || value.startsWith('existing-');
@@ -217,6 +252,7 @@ function getProfileImages(profile = {}) {
 }
 
 export function SalonAccountScreen({ session, navigate, notify, onSessionUpdate, onLogout }) {
+  const confirm = useConfirm();
   const initialProfile = { ...(session.user || {}), ...(session.user?.salon || {}) };
   const [profile, setProfile] = useState(initialProfile);
   const [loading, setLoading] = useState(true);
@@ -238,7 +274,7 @@ export function SalonAccountScreen({ session, navigate, notify, onSessionUpdate,
   if (loading && !hasCachedProfile) return <div className="screen salon-account-screen"><PageHeader title="Salon account" /><div className="account-loading"><Spinner label="Loading salon profile…" /></div></div>;
   const status = getSalonStatus(profile.businessHours, isOpen);
   const menus = [{ label: 'Edit salon profile', caption: 'Photos, hours, services and specialists', icon: Edit3, route: 'editProfile' }, { label: 'About My Naai', caption: 'How My Naai helps your business', icon: Store, route: 'salonAbout' }, { label: 'Frequently asked questions', caption: 'Partner help and booking basics', icon: Bell, route: 'salonFaq' }, { label: 'Terms & conditions', caption: 'Partner terms', icon: Receipt, route: 'salonTerms' }, { label: 'Subscription plans', caption: 'Upgrade or renew your plan', icon: WalletCards, route: 'subscription', params: { isUpgrade: true } }, { label: 'Need a hand?', caption: 'Call 8380017393', icon: Phone, action: () => window.open('tel:8380017393') }];
-  return <div className="screen salon-account-screen"><PageHeader title="Salon account" subtitle="Your business, in one place." action={<button className="refresh-text-button" onClick={load} disabled={loading}>{loading ? <Spinner size={14} /> : <Zap size={15} />} {loading ? 'Updating…' : 'Refresh'}</button>} /><section className="salon-profile-hero"><div className="salon-profile-photo"><ImageWithFallback src={profile.imageUrl || profile.imagesArray?.[0]} fallback="/assets/brand/naai-logo-dark.svg" alt={profile.salonName || 'Salon'} /></div><div className="salon-profile-copy"><span className="eyebrow">SALON PARTNER</span><h2>{profile.salonName || 'Your salon'}</h2><p><MapPin size={14} /> {profile.addressLine1 || profile.city || 'Add your salon address'}</p><span className={cx('account-status', status.isOpen ? 'open' : 'closed')}><i /> {status.isOpen ? 'Open for bookings' : 'Closed for bookings'}</span></div><Button size="small" variant="secondary" onClick={() => navigate('editProfile')}><Pencil size={15} /> Edit</Button></section><div className="salon-live-status"><div><span className="eyebrow">BOOKING STATUS</span><strong>{status.isOpen ? 'Customers can book you now' : 'Your salon is currently closed'}</strong><small>Toggle this when you are ready to take the next appointment.</small></div><Toggle checked={isOpen} onChange={toggleOpen} label={isOpen ? 'Open' : 'Closed'} /></div><div className="salon-profile-stats"><div><strong>{profile.services?.length || 0}</strong><span>Services</span></div><div><strong>{profile.barbers?.length || 0}</strong><span>Barbers</span></div></div>{planDetails ? <section className={cx('account-card', 'plan-card', !planDetails.isActive && 'plan-expired')}><div className="plan-card-top"><span className="plan-card-mark"><Crown size={18} /></span><div className="plan-card-title"><span className="eyebrow">{planDetails.isActive ? 'ACTIVE PLAN' : 'PLAN EXPIRED'}</span><strong>{planDetails.title}</strong><small>{planDetails.price !== null && planDetails.price > 0 ? `${formatCurrency(planDetails.price)}${planDetails.duration ? ` · ${planDetails.duration}` : ''}` : planDetails.duration || 'My Naai partner plan'}</small></div><StatusPill tone={planDetails.isActive ? 'open' : 'closed'} dot>{planDetails.isActive ? 'Active' : 'Expired'}</StatusPill></div><div className="plan-card-meta">{planDetails.startDate && <div><CalendarDays size={14} /><span><small>Started</small><strong>{formatDate(planDetails.startDate)}</strong></span></div>}{planDetails.expiryDate && <div><Clock3 size={14} /><span><small>{planDetails.isActive ? 'Expires' : 'Expired on'}</small><strong>{formatDate(planDetails.expiryDate)}</strong></span></div>}{planDetails.daysLeft !== null && <div><Zap size={14} /><span><small>Remaining</small><strong>{planDetails.daysLeft > 0 ? `${planDetails.daysLeft} day${planDetails.daysLeft === 1 ? '' : 's'} left` : 'Renewal due'}</strong></span></div>}</div><Button size="small" variant={planDetails.isActive ? 'secondary' : 'primary'} onClick={() => navigate('subscription', { isUpgrade: true })}>{planDetails.isActive ? 'Manage plan' : 'Renew plan'}</Button></section> : <section className="account-card plan-card plan-unknown"><div className="plan-card-top"><span className="plan-card-mark"><Crown size={18} /></span><div className="plan-card-title"><span className="eyebrow">SUBSCRIPTION</span><strong>Plan details unavailable</strong><small>Keep your salon visible with an active plan.</small></div></div><Button size="small" onClick={() => navigate('subscription', { isUpgrade: true })}>View plans</Button></section>}<div className="account-card partner-menu">{menus.map(item => <button className="account-menu-row" key={item.label} onClick={item.action || (() => navigate(item.route, item.params || {}))}><span className="account-menu-icon"><item.icon size={18} /></span><span><strong>{item.label}</strong><small>{item.caption}</small></span><ChevronRight size={17} /></button>)}</div>{onLogout && <button className="logout-button partner-logout" type="button" onClick={() => { if (window.confirm('Are you sure you want to logout?')) onLogout(); }}><LogOut size={16} /> Logout</button>}<NotificationDiagnostics /><p className="version-label">My Naai partner portal · 1.0</p></div>;
+  return <div className="screen salon-account-screen"><PageHeader title="Salon account" subtitle="Your business, in one place." action={<button className="refresh-text-button" onClick={load} disabled={loading}>{loading ? <Spinner size={14} /> : <Zap size={15} />} {loading ? 'Updating…' : 'Refresh'}</button>} /><section className="salon-profile-hero"><div className="salon-profile-photo"><ImageWithFallback src={profile.imageUrl || profile.imagesArray?.[0]} fallback="/assets/brand/naai-logo-dark.svg" alt={profile.salonName || 'Salon'} /></div><div className="salon-profile-copy"><span className="eyebrow">SALON PARTNER</span><h2>{profile.salonName || 'Your salon'}</h2><p><MapPin size={14} /> {profile.addressLine1 || profile.city || 'Add your salon address'}</p><span className={cx('account-status', status.isOpen ? 'open' : 'closed')}><i /> {status.isOpen ? 'Open for bookings' : 'Closed for bookings'}</span></div><Button size="small" variant="secondary" onClick={() => navigate('editProfile')}><Pencil size={15} /> Edit</Button></section><div className="salon-live-status"><div><span className="eyebrow">BOOKING STATUS</span><strong>{status.isOpen ? 'Customers can book you now' : 'Your salon is currently closed'}</strong><small>Toggle this when you are ready to take the next appointment.</small></div><Toggle checked={isOpen} onChange={toggleOpen} label={isOpen ? 'Open' : 'Closed'} /></div><div className="salon-profile-stats"><div><strong>{profile.services?.length || 0}</strong><span>Services</span></div><div><strong>{profile.barbers?.length || 0}</strong><span>Barbers</span></div></div>{planDetails ? <section className={cx('account-card', 'plan-card', !planDetails.isActive && 'plan-expired')}><div className="plan-card-top"><span className="plan-card-mark"><Crown size={18} /></span><div className="plan-card-title"><span className="eyebrow">{planDetails.isActive ? 'ACTIVE PLAN' : 'PLAN EXPIRED'}</span><strong>{planDetails.title}</strong><small>{planDetails.price !== null && planDetails.price > 0 ? `${formatCurrency(planDetails.price)}${planDetails.duration ? ` · ${planDetails.duration}` : ''}` : planDetails.duration || 'My Naai partner plan'}</small></div><StatusPill tone={planDetails.isActive ? 'open' : 'closed'} dot>{planDetails.isActive ? 'Active' : 'Expired'}</StatusPill></div><div className="plan-card-meta">{planDetails.startDate && <div><CalendarDays size={14} /><span><small>Started</small><strong>{formatDate(planDetails.startDate)}</strong></span></div>}{planDetails.expiryDate && <div><Clock3 size={14} /><span><small>{planDetails.isActive ? 'Expires' : 'Expired on'}</small><strong>{formatDate(planDetails.expiryDate)}</strong></span></div>}{planDetails.daysLeft !== null && <div><Zap size={14} /><span><small>Remaining</small><strong>{planDetails.daysLeft > 0 ? `${planDetails.daysLeft} day${planDetails.daysLeft === 1 ? '' : 's'} left` : 'Renewal due'}</strong></span></div>}</div><Button size="small" variant={planDetails.isActive ? 'secondary' : 'primary'} onClick={() => navigate('subscription', { isUpgrade: true })}>{planDetails.isActive ? 'Manage plan' : 'Renew plan'}</Button></section> : <section className="account-card plan-card plan-unknown"><div className="plan-card-top"><span className="plan-card-mark"><Crown size={18} /></span><div className="plan-card-title"><span className="eyebrow">SUBSCRIPTION</span><strong>Plan details unavailable</strong><small>Keep your salon visible with an active plan.</small></div></div><Button size="small" onClick={() => navigate('subscription', { isUpgrade: true })}>View plans</Button></section>}<div className="account-card partner-menu">{menus.map(item => <button className="account-menu-row" key={item.label} onClick={item.action || (() => navigate(item.route, item.params || {}))}><span className="account-menu-icon"><item.icon size={18} /></span><span><strong>{item.label}</strong><small>{item.caption}</small></span><ChevronRight size={17} /></button>)}</div>{onLogout && <button className="logout-button partner-logout" type="button" onClick={async () => { if (await confirm(LOGOUT_CONFIRM)) onLogout(); }}><LogOut size={16} /> Logout</button>}<NotificationDiagnostics /><p className="version-label">My Naai partner portal · 1.0</p></div>;
 }
 
 function getEditorBusinessHour(value = {}) {
@@ -326,6 +362,7 @@ function CollapsibleEditorCard({ idPrefix, icon, image, title, subtitle, flag, e
 }
 
 export function EditSalonProfileScreen({ params, session, navigate, notify, onSessionUpdate }) {
+  const confirm = useConfirm();
   const routeProfile = params?.profileData && typeof params.profileData === 'object' ? params.profileData : null;
   const initial = routeProfile || { ...(session.user || {}), ...(session.user?.salon || {}) };
   const isOnboarding = params?.isOnboarding === true || params?.isOnboarding === 'true' || session.isNewSalon;
@@ -537,24 +574,52 @@ export function EditSalonProfileScreen({ params, session, navigate, notify, onSe
     const defaults = DEFAULT_SERVICES[String(type || '').toLowerCase()] || [];
     return defaults.map((item, index) => ({ ...normalizeService(item, index), id: `new-service-${Date.now()}-${index}` }));
   };
-  const loadDefaultServices = () => {
+  // Both default-service paths ask the same question with the same wording, so a
+  // partner switching salon type and a partner tapping "Load defaults" get one
+  // consistent sheet: Replace / Keep mine.
+  const askReplaceServices = (type, currentCount, defaultCount) => confirm({
+    title: 'Use the default services?',
+    message: `Replace your ${currentCount} current ${currentCount === 1 ? 'service' : 'services'} with the ${defaultCount} ${salonTypeLabel(type) || 'salon'} defaults? Unsaved edits to them are lost.`,
+    confirmLabel: 'Replace',
+    cancelLabel: 'Keep mine',
+    tone: 'warning',
+    icon: RefreshCw,
+    // "Keep mine" is the safe answer, so it gets the focus and the Enter key.
+    defaultAction: 'cancel',
+  });
+  const loadDefaultServices = async () => {
     const defaults = createDefaultEditorServices(genderType);
     if (!defaults.length) return notify?.('error', 'Choose a salon type before loading default services.');
-    if (services.length && !window.confirm('Replace the current services with the defaults for this salon type?')) return;
+    if (services.length && !(await askReplaceServices(genderType, services.length, defaults.length))) return;
     setServices(defaults);
     setExpandedItems(current => ({ ...current, ...Object.fromEntries(defaults.map(item => [`service-${item.id}`, true])) }));
   };
-  const changeGenderType = event => {
+  const changeGenderType = async event => {
+    // Read the value before any `await`: React reuses synthetic event objects.
     const nextType = event.target.value;
-    const keepServices = nextType && nextType !== genderType && services.length
-      ? window.confirm('Keep the current services for the new salon type? Choose Cancel to replace them with defaults.')
-      : true;
+    const previousType = genderType;
+    const currentCount = services.length;
     setGenderType(nextType);
-    if (nextType && (!services.length || !keepServices)) setServices(createDefaultEditorServices(nextType));
+    if (!nextType || nextType === previousType) return;
+    const defaults = createDefaultEditorServices(nextType);
+    if (!currentCount) {
+      if (defaults.length) setServices(defaults);
+      return;
+    }
+    if (!defaults.length) return;
+    if (await askReplaceServices(nextType, currentCount, defaults.length)) setServices(defaults);
   };
   const removeService = async id => {
     if (isNewEditorRecord(id)) return setServices(current => current.filter(item => item.id !== id));
-    if (!window.confirm('Delete this service?')) return;
+    const confirmed = await confirm({
+      title: 'Delete this service?',
+      message: 'Customers will no longer be able to book it. This cannot be undone.',
+      confirmLabel: 'Delete service',
+      cancelLabel: 'Keep it',
+      tone: 'danger',
+      icon: Trash2,
+    });
+    if (!confirmed) return;
     try {
       const response = await api.deleteSalonService(id);
       if (response?.status && response.status !== 'SUCCESS') throw new Error(response.message || 'Could not delete service.');
@@ -568,7 +633,15 @@ export function EditSalonProfileScreen({ params, session, navigate, notify, onSe
       if (removed?.image?.startsWith('blob:')) URL.revokeObjectURL(removed.image);
       return current.filter(item => item.id !== id);
     });
-    if (!window.confirm('Delete this specialist?')) return;
+    const confirmed = await confirm({
+      title: 'Delete this specialist?',
+      message: 'They stop appearing on your salon profile and customers can no longer pick them.',
+      confirmLabel: 'Delete specialist',
+      cancelLabel: 'Keep it',
+      tone: 'danger',
+      icon: Trash2,
+    });
+    if (!confirmed) return;
     try {
       const response = await api.deleteSalonBarber(id);
       if (response?.status && response.status !== 'SUCCESS') throw new Error(response.message || 'Could not delete specialist.');
@@ -797,7 +870,7 @@ export function EditSalonProfileScreen({ params, session, navigate, notify, onSe
       <SelectField label="Weekly Off" hint="Optional" value={holiday} onChange={event => setHoliday(event.target.value)} placeholder="No weekly off" options={['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].map((day, index) => ({ value: String(index), label: day }))} />
     </CollapsibleSection>
     <CollapsibleSection id="services" innerRef={node => { sectionRefs.current.services = node; }} icon={<Scissors size={18} />} title="Salon Services" subtitle={EDITOR_SECTION_SUBTITLES.services} count={services.length} flag={sectionFlag('services')} summary={sectionSummary('services', services.length ? `${services.length} service${services.length === 1 ? '' : 's'} on your menu` : 'No services added yet')} open={openSections.services} onToggle={() => toggleSection('services')} headingActions={<>
-      <button type="button" className="add-inline-button" onClick={loadDefaultServices}><RefreshCw size={14} /> Load Default {genderType ? genderType.charAt(0) + genderType.slice(1).toLowerCase() : ''} Services</button>
+      <button type="button" className="add-inline-button" onClick={loadDefaultServices}><RefreshCw size={14} /> Load Default {salonTypeLabel(genderType)} Services</button>
       <button type="button" className="add-inline-button" onClick={addService}><Plus size={15} /> Add Service</button>
     </>}>
       <p className="collapsible-lede">Every service needs a Service Name <em className="required-star">*</em>, Price <em className="required-star">*</em> and Duration <em className="required-star">*</em>.</p>
@@ -815,7 +888,7 @@ export function EditSalonProfileScreen({ params, session, navigate, notify, onSe
       <p className="collapsible-lede">Optional · add the people customers can choose during booking. Every barber needs a Barber Name <em className="required-star">*</em>.</p>
       <div className="editor-items">{barbers.map(item => {
         const itemKey = `barber-${item.id}`;
-        return <CollapsibleEditorCard idPrefix={itemKey} image={<label className="editor-barber-image" aria-label={`Replace photo for ${item.name || 'new barber'}`}><ImageWithFallback src={item.image} fallback="/assets/brand/naai-logo-dark.svg" alt="" /><span><Pencil size={11} /></span><input type="file" accept="image/*" onChange={event => selectBarberImage(item.id, event)} /></label>} title={item.name || 'New Barber'} flag={barberIncomplete(item) ? 'Name required' : ''} subtitle={item.isAvailable ? 'Available' : 'Away'} expanded={Boolean(expandedItems[itemKey])} onToggle={() => toggleItem(itemKey)} onDelete={() => removeBarber(item.id)} deleteLabel={`Delete ${item.name || 'barber'}`} key={item.id}>
+        return <CollapsibleEditorCard idPrefix={itemKey} image={<label className="editor-barber-image" aria-label={`Replace photo for ${item.name || 'new barber'}`}><ImageWithFallback src={item.image} fallback={PERSON_PLACEHOLDER} alt="" /><span><Pencil size={11} /></span><input type="file" accept="image/*" onChange={event => selectBarberImage(item.id, event)} /></label>} title={item.name || 'New Barber'} flag={barberIncomplete(item) ? 'Name required' : ''} subtitle={item.isAvailable ? 'Available' : 'Away'} expanded={Boolean(expandedItems[itemKey])} onToggle={() => toggleItem(itemKey)} onDelete={() => removeBarber(item.id)} deleteLabel={`Delete ${item.name || 'barber'}`} key={item.id}>
           <div className="form-two-col"><Field label="Barber Name" required><input value={item.name} onChange={event => updateBarber(item.id, 'name', event.target.value)} placeholder="Barber name" /></Field><Field label="Rating" hint="Optional · out of 5"><input type="number" min="0" max="5" step="0.1" value={item.rating} onChange={event => updateBarber(item.id, 'rating', event.target.value)} placeholder="Rating" /></Field></div>
           <div className="switch-form-row"><span><strong>Availability</strong><small>Available barbers can be picked at booking.</small></span><Toggle checked={item.isAvailable} onChange={value => updateBarber(item.id, 'isAvailable', value)} /></div>
         </CollapsibleEditorCard>;

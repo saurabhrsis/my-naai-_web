@@ -209,7 +209,121 @@ Two workers have separate responsibilities and scopes:
 
 They must not be merged into one worker or registered with the same scope. The PWA install prompt is captured by the app and offered during onboarding/authentication and from the workspace sidebar when the browser supports it.
 
-## 10. Important source locations
+## 10. Device safe areas and in-app confirmations
+
+### The top of the screen is never cut by the status bar
+
+An installed PWA draws edge to edge, so the device status bar sits **on top of**
+the page: on iPhone (`apple-mobile-web-app-status-bar-style: black-translucent`;
+Chrome on iOS behaves identically because every iOS browser uses WKWebView) and
+on Android once Chrome renders installed web apps edge to edge. The app name and
+the notification bell in `.mobile-shell-bar` were the first things clipped.
+
+- `index.html` keeps `viewport-fit=cover`. Without it every
+  `env(safe-area-inset-*)` resolves to `0px` and no CSS can fix the clipping.
+- `src/styles.css` exposes `--safe-top/right/bottom/left` on `:root`, and every
+  surface that touches a screen edge is padded with them: the app header, the
+  workspace content, the subscription-gate content (which hides the header), the
+  bottom tab bar, modals, confirmations, toasts, the onboarding/login/salon
+  registration pages and the desktop sidebar.
+- `.mobile-shell-bar` is `position: sticky` and painted with the app background,
+  so scrolled content never shows through the status bar strip and the app name
+  and bell stay reachable on a long queue or home screen. `.workspace` became a
+  column flex box at the same time: `.workspace-content` used to carry its own
+  `min-height: 100svh` *below* the header, making every screen one header taller
+  than the device.
+- In a normal browser tab all four insets are `0px`, so the layout is unchanged
+  there.
+- `theme-color` and the manifest colours now match `--black` (`#080a0a`). Android
+  paints the status bar with `theme-color`, and the old `#0b0c0c` showed up as a
+  lighter band above the header that also read as the top being "cut".
+- `apple-mobile-web-app-title` names the iPhone Home Screen icon **My Naai**.
+  Without it iOS falls back to `<title>`, a marketing line that was truncated to
+  "My Naai — your s…". Android uses the manifest `short_name`.
+- `public/sw.js` moved to `mynaai-shell-v3` so already-installed PWAs drop the
+  old shell cache and pick up the new `index.html` and manifest.
+
+### Responsiveness across every screen and browser
+
+A pass over all customer, partner and shared screens at 320 px, 375 px, 768 px,
+1024 px and 1600 px closed the remaining layout and browser-compatibility gaps:
+
+- **One image frame per component, everywhere.** `.salon-card-image-wrap` used
+  five hard-coded pixel heights (157/177/195/205/220), so the same photo was a
+  different crop on every breakpoint and portrait shots came out squat or
+  face-cropped. Salon cards now use a single `aspect-ratio: 16 / 10` frame
+  (pixel-height fallback for browsers without `aspect-ratio`), product tiles a
+  capped `4 / 3`, the detail hero `3 / 2` and barber slots `1 / 1`, always with
+  `object-position: center` (top for faces).
+- **Default images look intentional.** `ImageWithFallback` letterboxes any SVG
+  fallback (`.image-fallback-tile`: `object-fit: contain` + proportional padding
+  on a branded gold/green gradient) instead of stretching the square logo tile
+  across a wide frame, which is what made an empty salon card look broken. New
+  on-brand placeholders replace the stock pictures that stood in for missing
+  data: `public/assets/brand/product-placeholder.svg` (catalog items; the old
+  default was an unrelated advert photo) and
+  `public/assets/brand/person-placeholder.svg` (barbers/specialists; the old
+  default repeated one person's face for every slot).
+- **The wordmark reads the same everywhere.** "My Naai" is two `.brand-cap`
+  spans (M and N, identical size) plus two `.brand-lower` spans; it was "M" at
+  30 px and "y Naai" at 24 px before, so the two capitals disagreed. An
+  `sr-only` span keeps the accessible name "My Naai".
+- **Grids degrade instead of clipping.** `.plan-card-meta` uses
+  `repeat(auto-fit, minmax(96px, 1fr))` and `.time-grid`
+  `repeat(auto-fill, minmax(88px, 1fr))` (six columns from 760 px), so a 320 px
+  phone gets two columns of readable chips instead of three crushed ones.
+- **Older/quirky browsers.** `--viewport-height` declares `100vh` then `100svh`
+  and every full-height surface uses it, so iOS Safari < 15.4 and Chrome < 108
+  still get full-height screens; `-webkit-backdrop-filter` is paired with
+  `backdrop-filter` on all seven blurred surfaces for Safari; `text-size-adjust`
+  stops landscape text inflation; `touch-action: manipulation` removes the
+  double-tap zoom delay on buttons and links.
+- **iOS no longer zooms forms on focus.** Any focused control under 16 px made
+  Safari magnify the page; a `@media (pointer: coarse)` rule lifts every text
+  input, textarea and select to 16 px (the OTP field keeps its own size),
+  scoped with `:not()` so checkbox/radio/range/color inputs and desktop are
+  untouched.
+- **Safe areas completed.** The salon profile editor's sticky action bar clears
+  the home indicator (`bottom: max(8px, var(--safe-bottom))`), and the
+  subscription gate pads its own content with the top and bottom insets because
+  it hides the header.
+
+### Confirmations are the app's own dialog, never the browser's
+
+`src/components/ConfirmDialog.jsx` exports `<ConfirmProvider>` (mounted once, at
+the top of `App.jsx`) and `useConfirm()`, which returns a promise-based
+`confirm(options)` resolving `true`/`false`. It replaced every `window.confirm`
+call and the `window.prompt` clipboard fallback in the notification diagnostics
+card:
+
+| Action | Where |
+| --- | --- |
+| Log out (shared `LOGOUT_CONFIRM` copy) | Customer account, partner account, desktop sidebar, expired-plan notice |
+| Cancel a booking | Customer → My bookings |
+| Mark a service done | Partner → Customer queue |
+| Delete a product / service / specialist | Partner products and profile editor |
+| Replace the service list with the type defaults | Profile editor: *Load Default Services* and a salon-type change (one shared "Use the default services?" sheet, *Replace* / *Keep mine*) |
+
+Why: a native dialog cannot be themed, ignores the device safe areas, prefixes
+the message with the site origin, and is suppressed outright in some installed
+PWA contexts — where `window.confirm()` returns `false`, so the button looks
+broken instead of asking anything.
+
+Behaviour: a bottom sheet under 520px and a centred card above it; Escape, the
+backdrop and Cancel all resolve `false`; a `danger` tone focuses Cancel so an
+impatient Enter cannot delete data; focus returns to the control that opened the
+sheet; Tab is trapped inside it; and the page behind is scroll-locked (iOS
+ignores `overflow: hidden` on `<body>`, so the backdrop also cancels `touchmove`
+that starts outside the sheet).
+
+Deliberately **not** confirmed: accepting or declining a booking request and a
+delay proposal. Those are already two explicit, labelled choices, and the booking
+request runs a 60-second countdown that a second dialog would eat into.
+
+`src/components/ConfirmDialog.test.jsx` covers the dialog behaviour and fails if
+`window.confirm`, `window.alert` or `window.prompt` reappears anywhere in `src`.
+
+## 11. Important source locations
 
 | File | Responsibility |
 | --- | --- |
@@ -220,6 +334,7 @@ They must not be merged into one worker or registered with the same scope. The P
 | `src/lib/devtoolsShield.js` | Swallows the known Chrome DevTools Performance-panel crash (also inlined in `index.html` so it runs before the bundle) |
 | `src/lib/razorpay.js` | Checkout loader, amount rules, payment outcomes, UPI hand-off tracking and pending-payment recovery |
 | `src/components/SubscriptionScreen.jsx` | Plan picker, Razorpay flow, cancellation/failure copy and payment recovery |
+| `src/components/ConfirmDialog.jsx` | Promise-based in-app confirmation sheet that replaces every native browser dialog |
 | `src/lib/push.js` | Firebase initialization, permission/token flow and notification route mapping |
 | `public/assets/brand/naai-mark.svg` | Official MyNaai mark (inherits `currentColor`) used by the in-app brand chip |
 | `public/assets/brand/naai-logo-dark.svg` | Official logo on the dark app tile; the default image fallback everywhere |
@@ -227,9 +342,9 @@ They must not be merged into one worker or registered with the same scope. The P
 | `src/components/UserScreens.jsx` | Customer screens, bookings and delay response |
 | `src/components/SalonScreens.jsx` | Salon queue, booking request, delay action and partner screens |
 | `src/main.jsx` | Root offline shell worker registration |
-| `src/styles.css` | Responsive mobile-first layout through large desktop widths |
+| `src/styles.css` | Responsive mobile-first layout through large desktop widths, with the device safe-area padding for installed PWAs |
 
-## 11. Validation checklist
+## 12. Validation checklist
 
 Before deployment:
 
@@ -253,8 +368,12 @@ Then test on an HTTPS deployment with a real customer and salon account:
 - Save a new/incomplete profile and confirm it lands on the payment screen; save a complete profile and confirm it returns to **Salon account**.
 - On a phone, start a payment, choose UPI, switch to Google Pay/PhonePe, come back and confirm the portal shows *Confirming your payment…* and activates the plan.
 - Open Checkout and press back/close: confirm the *Payment cancelled — no amount was charged* notice and that **Continue** starts a fresh order.
-
-## 12. Known console noise (not a MyNaai bug)
+- Install to the Home Screen on an iPhone and an Android phone: the app name and the notification bell sit **below** the status bar (not cut in half), the bottom tab bar clears the gesture bar, and the Home Screen icon is labelled "My Naai".
+- Tap Logout, Cancel booking, Mark done and Delete service/product: the confirmation is the app's own sheet, with the same dark theme, on both iPhone (Safari and Chrome) and Android.
+- Load the home screen with a salon that has no photo (or block the image URLs): the card shows the My Naai tile centred on the branded gradient, never a stretched or half-cropped logo; products and barbers show their neutral placeholder tiles.
+- View the app at 320 px and 375 px: plan cards, time slots and every grid keep readable two-column chips, and tapping a login/search/profile field on an iPhone does not zoom the page.
+- Check the header wordmark: the M and the N are the same size on the login page, the mobile header and the desktop sidebar.
+## 13. Known console noise (not a MyNaai bug)
 
 While Chrome DevTools is open, its Performance panel injects an anonymous helper script that can throw:
 

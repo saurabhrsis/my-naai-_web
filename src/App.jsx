@@ -47,6 +47,7 @@ import {
   SalonQueueScreen,
 } from './components/SalonScreens';
 import { SubscriptionScreen } from './components/SubscriptionScreen';
+import { ConfirmProvider, LOGOUT_CONFIRM, useConfirm } from './components/ConfirmDialog';
 import { SALON_ABOUT_CONTENT, SALON_FAQ_CONTENT, SALON_TERMS_CONTENT } from './lib/salonContent';
 import { Button, Field, Modal, SelectField, Spinner, getBrowserLocation, getErrorMessage, cx } from './components/Shared';
 
@@ -387,7 +388,17 @@ function PermissionsPrompt({ compact = false, notifyInstall = null, onPushToken,
   );
 }
 
+// The provider sits above the auth flow *and* the signed-in shell: logout is
+// confirmed from both, and no screen may fall back to a blocking browser dialog.
 export default function App() {
+  return (
+    <ConfirmProvider>
+      <AppRoot />
+    </ConfirmProvider>
+  );
+}
+
+function AppRoot() {
   const [session, setSession] = useState(readStoredSession);
   const [route, setRoute] = useState(() => getRouteFromHash(session?.role));
   const [installPrompt, setInstallPrompt] = useState(null);
@@ -718,18 +729,28 @@ function SalonRegistration({ initialData, onBack, onComplete, notifyInstall }) {
 }
 function Brand({ light = false }) {
   return (
-    <div className={cx('brand', light && 'brand-light')} aria-label="My Naai">
-      <img className="brand-mark" src="/assets/my_naai.png" alt="" />
-      <span className="brand-wordmark">
-        <span className="brand-m">M</span>
-        <span className="brand-rest">y Naai</span>
+    <div className={cx('brand', light && 'brand-light')}>
+      <img className="brand-mark" src="/assets/my_naai.png" alt="" decoding="async" />
+      {/* Both capitals share .brand-cap, so the "M" and the "N" are always the
+          same size. The wordmark used to be "M" at 30px plus "y Naai" at 24px,
+          which left the N visibly smaller than the M in every header. */}
+      <span className="brand-wordmark" aria-hidden="true">
+        <span className="brand-cap">M</span>
+        <span className="brand-lower">y&nbsp;</span>
+        <span className="brand-cap">N</span>
+        <span className="brand-lower">aai</span>
       </span>
+      <span className="sr-only">My Naai</span>
     </div>
   );
 }
 
 function AppShell({ session, route, navigate, onLogout, onSessionUpdate, notifyInstall }) {
   const isSalon = session.role === 'SALON';
+  const confirm = useConfirm();
+  // Even on the paywall the partner gets the same in-app confirmation: the
+  // notice is the only sign-out control left on that screen.
+  const confirmSignOut = async () => { if (await confirm(LOGOUT_CONFIRM)) onLogout?.(); };
   const nav = isSalon ? SALON_NAV : USER_NAV;
   const primaryRoutes = nav.map(item => item.name);
   const utilityRoutes = ['detail', 'services', 'schedule', 'notifications', 'delay', 'about', 'faq', 'terms', 'salonAbout', 'salonFaq', 'salonTerms', 'subscription', 'editProfile', 'bookingRequest'];
@@ -979,7 +1000,7 @@ function AppShell({ session, route, navigate, onLogout, onSessionUpdate, notifyI
           <div className="subscription-lock-notice" role="alert">
             <CircleAlert size={17} />
             <span><strong>Your salon subscription has expired.</strong> Renew now to unlock your salon dashboard. Customers do not make payments here.</span>
-            <button className="subscription-lock-logout" onClick={onLogout} aria-label="Sign out"><LogOut size={14} /> Sign out</button>
+            <button className="subscription-lock-logout" onClick={confirmSignOut} aria-label="Sign out"><LogOut size={14} /> Sign out</button>
           </div>
         )}
         {!isSubscriptionGateScreen && route.name === 'account' && <NotificationSetupCard notifyInstall={notifyInstall} />}
@@ -997,7 +1018,9 @@ function SubscriptionGateLoading() {
 
 function Sidebar({ session, nav, route, navigate, onLogout, notifyInstall }) {
   const isSalon = session.role === 'SALON';
-  return <aside className="sidebar"><Brand /><div className="sidebar-role"><span className="role-mark">{isSalon ? <Store size={15} /> : <Scissors size={15} />}</span><span><small>Signed in as</small><strong>{isSalon ? 'Salon partner' : 'Customer'}</strong></span></div><nav className="sidebar-nav"><button className={route.name === 'notifications' ? 'active' : ''} onClick={() => navigate('notifications')}><Bell size={18} /><span>Notifications</span>{route.name === 'notifications' && <i />}</button>{nav.map(item => <button key={item.name} className={route.name === item.name ? 'active' : ''} onClick={() => navigate(item.name)}><item.icon size={18} /><span>{item.label}</span>{route.name === item.name && <i />}</button>)}</nav><div className="sidebar-bottom">{notifyInstall && <button className="install-side-button" onClick={notifyInstall}><Download size={16} /><span>Install My Naai</span></button>}<div className="sidebar-tip"><Sparkles size={16} /><p>{isSalon ? 'Keep your profile fresh to stand out nearby.' : 'Your next great look is closer than you think.'}</p></div><button className="sidebar-logout" onClick={onLogout}><LogOut size={16} /> Sign out</button></div></aside>;
+  const confirm = useConfirm();
+  const signOut = async () => { if (await confirm(LOGOUT_CONFIRM)) onLogout?.(); };
+  return <aside className="sidebar"><Brand /><div className="sidebar-role"><span className="role-mark">{isSalon ? <Store size={15} /> : <Scissors size={15} />}</span><span><small>Signed in as</small><strong>{isSalon ? 'Salon partner' : 'Customer'}</strong></span></div><nav className="sidebar-nav"><button className={route.name === 'notifications' ? 'active' : ''} onClick={() => navigate('notifications')}><Bell size={18} /><span>Notifications</span>{route.name === 'notifications' && <i />}</button>{nav.map(item => <button key={item.name} className={route.name === item.name ? 'active' : ''} onClick={() => navigate(item.name)}><item.icon size={18} /><span>{item.label}</span>{route.name === item.name && <i />}</button>)}</nav><div className="sidebar-bottom">{notifyInstall && <button className="install-side-button" onClick={notifyInstall}><Download size={16} /><span>Install My Naai</span></button>}<div className="sidebar-tip"><Sparkles size={16} /><p>{isSalon ? 'Keep your profile fresh to stand out nearby.' : 'Your next great look is closer than you think.'}</p></div><button className="sidebar-logout" onClick={signOut}><LogOut size={16} /> Sign out</button></div></aside>;
 }
 
 function MobileNav({ nav, route, navigate }) { return <nav className="mobile-nav">{nav.map(item => <button key={item.name} className={route.name === item.name ? 'active' : ''} onClick={() => navigate(item.name)}><item.icon size={20} /><span>{item.label.replace('Customer ', '').replace('My ', '')}</span></button>)}</nav>; }
