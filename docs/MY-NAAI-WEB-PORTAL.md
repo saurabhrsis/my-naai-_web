@@ -7,9 +7,11 @@ This document describes the responsive MyNaai customer and salon-partner web por
 The portal is a Vite/React single-page PWA for the two roles already present in the mobile app:
 
 - **Customer**: discover salons, view services and specialists, choose a slot, create booking requests, view bookings, respond to a salon delay request, browse products, update the profile and read notifications.
-- **Salon partner**: view the live customer queue, open a booking request, accept or reject it, ask the customer to accept a small time delay, mark a service complete, review history, manage products, edit salon details, manage open/closed status and manage a subscription.
+- **Salon partner**: view the live customer queue, open a booking request, accept or reject it, ask the customer to accept a small time delay, mark a service complete, review history, manage products, edit salon details, manage open/closed status, manage a subscription and sign out from the account screen.
 
 The UI uses the same REST endpoint names and payload conventions as `rightserveinfotechsystems/my_naai_app`. The production API default is `https://backend.mynaai.in`. In Vite development, `/api`, `/getFiles` and `/socket.io` use the configured proxy. The image path deliberately keeps the mobile app’s case-sensitive spelling: `/getFiles/<path>`.
+
+Uploaded files are only served by that route, but the payload paths are inconsistent (`/public/uploads/x.jpg`, `public/uploads/x.jpg`, a full backend URL, or an already-prefixed `/getFiles/...`). Every `<img>` therefore goes through `getFileUrl()` in `src/lib/api.js`, which normalises all four shapes onto `${API_BASE_URL}/getFiles/<relative path>`. Never concatenate `API_BASE_URL` with a stored path directly — that produced `https://backend.mynaai.in/public/uploads/…` and the ads carousel rendered blank tiles.
 
 ## 2. Run and build
 

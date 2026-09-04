@@ -687,6 +687,10 @@ function AppShell({ session, route, navigate, onLogout, onSessionUpdate, notifyI
   useEffect(() => { subscriptionGateRef.current = subscriptionGate; }, [subscriptionGate]);
   const routeName = useRef(route.name);
   useEffect(() => { routeName.current = route.name; }, [route.name]);
+  // Screens read the session through this ref so `handleSessionUpdate` below can
+  // keep a stable identity (see its comment).
+  const sessionRef = useRef(session);
+  useEffect(() => { sessionRef.current = session; }, [session]);
 
   // A salon subscription is checked before any partner screen is mounted. This
   // prevents a stale queue/account route from flashing or being usable while the
@@ -842,16 +846,24 @@ function AppShell({ session, route, navigate, onLogout, onSessionUpdate, notifyI
     return () => { cancelled = true; unsubscribe(); };
   }, [safeNavigate, notify, session.role, session.userId]);
 
+  // NOTE: deliberately not keyed on `session`. Screens list this callback in the
+  // dependency array of their data loader (SalonAccountScreen, SubscriptionScreen)
+  // and then call it from inside that loader. Depending on `session` gave it a new
+  // identity on every write, which recreated `load`, re-fired the loader effect,
+  // refetched, wrote again — an endless loop that pinned the salon account screen on
+  // "Loading salon profile…" while spamming GET /api/salon/profile. The latest
+  // session is read from sessionRef instead, so identity stays stable and the
+  // handler still sees current data.
   const handleSessionUpdate = useCallback((user = {}, sessionPatch = {}) => {
     onSessionUpdate?.(user, sessionPatch);
     if (!isSalon) return;
-    const nextProfile = { ...getSalonSubscriptionProfile(session), ...(user || {}) };
+    const nextProfile = { ...getSalonSubscriptionProfile(sessionRef.current), ...(user || {}) };
     const explicitlyExpired = flagIsTrue(user?.subscriptionExpired) || flagIsTrue(sessionPatch?.subscriptionExpired);
     const explicitlyActive = flagIsFalse(user?.subscriptionExpired) || flagIsFalse(sessionPatch?.subscriptionExpired);
     const nextState = getSubscriptionState(nextProfile);
     if (explicitlyExpired || nextState.expired) setSubscriptionGate('locked');
     else if (explicitlyActive || nextState.active) setSubscriptionGate('active');
-  }, [isSalon, onSessionUpdate, session]);
+  }, [isSalon, onSessionUpdate]);
 
   const isSubscriptionLocked = isSalon && subscriptionGate === 'locked';
   const isCheckingSubscription = isSalon && !session.isNewSalon && subscriptionGate === 'checking';
@@ -878,7 +890,7 @@ function AppShell({ session, route, navigate, onLogout, onSessionUpdate, notifyI
     if (route.name === 'queue') return <SalonQueueScreen {...props} />;
     if (route.name === 'history') return <SalonHistoryScreen {...props} />;
     if (route.name === 'salonProducts') return <SalonProductsScreen {...props} />;
-    if (route.name === 'account') return <SalonAccountScreen {...props} />;
+    if (route.name === 'account') return <SalonAccountScreen {...props} onLogout={onLogout} />;
     if (route.name === 'notifications') return <NotificationsScreen {...props} />;
     if (route.name === 'editProfile') return <EditSalonProfileScreen {...props} params={route.params} />;
     if (route.name === 'bookingRequest') return <BookingRequestScreen {...props} params={route.params} />;

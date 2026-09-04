@@ -158,9 +158,18 @@ img { display: block; max-width: 100%; }
 .visual-quote { display: flex; align-items: flex-start; gap: 8px; max-width: 340px; color: #bdc2c1; }
 .visual-quote span { color: var(--gold); font-size: 42px; line-height: .7; }
 .visual-quote p { margin: 0; font-size: 12px; }
-.auth-form-panel { min-height: 100svh; display: flex; flex-direction: column; justify-content: center; padding: 26px 22px; background: radial-gradient(circle at 82% 0%, rgba(232,185,126,.09), transparent 28%), var(--black); }
-.mobile-auth-brand { position: absolute; top: 25px; left: 22px; }
-.auth-form-wrap { width: 100%; max-width: 460px; margin: 45px auto 0; }
+/* `gap` (not just the legal line's auto margin) keeps the terms/privacy line
+   clear of the "Continue with OTP" button: auto margins collapse to 0 once the
+   panel has no free space (short viewport, install chip, permission cards, error
+   banner, open soft keyboard), which is what let the two collide. */
+/* The mobile brand used to be `position: absolute; top: 25px`, and the form was
+   pushed down by a hand-tuned `margin-top: 45px`. Brand tile (46px) + padding
+   (26px) put the "WELCOME TO MY NAAI" eyebrow's top exactly at the logo's bottom
+   edge — they touched on every phone. The brand is now an in-flow flex item, so
+   the gap is structural instead of two numbers that had to agree. */
+.auth-form-panel { min-height: 100svh; display: flex; flex-direction: column; justify-content: center; gap: 30px; padding: max(24px, env(safe-area-inset-top)) 22px max(26px, env(safe-area-inset-bottom)); background: radial-gradient(circle at 82% 0%, rgba(232,185,126,.09), transparent 28%), var(--black); }
+.mobile-auth-brand { flex: none; align-self: flex-start; margin: 0 0 28px; }
+.auth-form-wrap { width: 100%; max-width: 460px; margin: 0 auto; flex: none; }
 .auth-form-wrap h1, .registration-card h1 { margin: 13px 0 9px; font-size: clamp(29px, 8vw, 43px); line-height: 1.03; letter-spacing: -.05em; }
 .auth-subtitle { max-width: 370px; margin: 0 0 26px; color: var(--muted); font-size: 14px; line-height: 1.5; }
 .role-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 23px; padding: 5px; border-radius: 14px; background: var(--panel); border: 1px solid var(--line); }
@@ -180,7 +189,7 @@ img { display: block; max-width: 100%; }
 .auth-divider { position: relative; display: flex; align-items: center; margin: 27px 0 18px; color: #616a69; font-size: 12px; }
 .auth-divider::before, .auth-divider::after { content: ''; flex: 1; height: 1px; background: var(--line); }
 .auth-divider span { padding: 0 12px; }
-.auth-legal { max-width: 350px; margin: auto auto 0; color: #59605f; font-size: 10px; line-height: 1.5; text-align: center; }
+.auth-legal { max-width: 350px; margin: auto auto 0; flex: none; padding: 0 6px; color: #59605f; font-size: 10px; line-height: 1.5; text-align: center; }
 .registration-page { min-height: 100svh; padding: 20px; background: radial-gradient(circle at 100% 0%, rgba(232,185,126,.1), transparent 34%), var(--black); }
 .registration-back { width: 100%; max-width: 540px; margin: 0 auto; display: flex; align-items: center; gap: 13px; }
 .registration-back .brand { margin-left: 3px; }
@@ -203,7 +212,10 @@ img { display: block; max-width: 100%; }
 .app-shell { min-height: 100svh; background: var(--black); }
 .sidebar { display: none; }
 .workspace { min-width: 0; width: 100%; }
-.workspace-content { width: 100%; max-width: 1600px; min-height: 100svh; margin: 0 auto; padding: 17px 15px 95px; }
+/* Bottom padding clears the fixed .mobile-nav (≈57px) and grows with the
+   device's safe area: with a flat 95px the last row of every screen — Logout on
+   Account — sat underneath the nav bar on iPhones and gesture-bar Androids. */
+.workspace-content { width: 100%; max-width: 1600px; min-height: 100svh; margin: 0 auto; padding: 17px 15px calc(100px + env(safe-area-inset-bottom)); }
 .mobile-shell-bar { display: flex; align-items: center; justify-content: space-between; padding: 2px 2px 16px; }
 .mobile-shell-bar .brand-mark { width: 48px; height: 48px; border-radius: 14px; }
 .mobile-shell-bar .brand-m { font-size: 32px; }
@@ -226,6 +238,7 @@ img { display: block; max-width: 100%; }
 .refresh-icon-button { background: var(--card); color: var(--gold); border: 1px solid var(--line); }
 .notification-ping { position: absolute; top: 8px; right: 8px; width: 6px; height: 6px; border: 1px solid #111; border-radius: 50%; background: var(--red); }
 .refresh-text-button, .catalog-label { display: inline-flex; align-items: center; gap: 6px; padding: 8px 11px; border: 1px solid var(--line); border-radius: 10px; color: #d6dcdb; background: var(--card); font-size: 11.5px; font-weight: 700; }
+.refresh-text-button:disabled { cursor: default; color: #8d9493; opacity: .72; }
 .catalog-label { color: var(--gold); border-color: var(--line-strong); }
 
 /* Customer home */
@@ -358,9 +371,15 @@ img { display: block; max-width: 100%; }
 .account-menu-row strong { color: var(--white); font-size: 12px; font-weight: 500; }
 .account-menu-row small { overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .account-menu-row > svg { color: #687171; }
-.logout-button { width: 100%; display: flex; align-items: center; justify-content: space-between; padding: 13px 15px; border-radius: 14px; color: var(--red); background: rgba(242,123,116,.08); font-size: 12px; font-weight: 700; }
-.logout-button span:first-child { display: inline-flex; align-items: center; gap: 8px; }
-.logout-arrow { font-size: 18px; }
+/* Logout sits below a scrolling settings list with a fixed bottom nav over it,
+   so it needs its own hit target, a defined edge, and clearance (see
+   .workspace-content padding-bottom). The old rule used `space-between` with a
+   single label — which left the word stranded at the left edge of a full-width
+   bar with a dead `.logout-arrow` slot on the right. */
+.logout-button { width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 50px; padding: 13px 15px; border: 1px solid rgba(242, 123, 116, .22); border-radius: 14px; color: var(--red); background: rgba(242,123,116,.08); font-size: 13px; font-weight: 700; }
+.logout-button svg { flex: none; }
+.logout-button:hover { background: rgba(242, 123, 116, .14); border-color: rgba(242, 123, 116, .34); }
+.logout-button:active { background: rgba(242, 123, 116, .2); }
 .version-label { margin: 18px 0; color: #59615f; font-size: 9px; text-align: center; }
 .empty-state { min-height: 270px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 28px 18px; text-align: center; }
 .empty-icon { width: 58px; height: 58px; display: flex; align-items: center; justify-content: center; margin-bottom: 13px; border-radius: 20px; color: var(--gold); background: var(--gold-wash); }
@@ -851,8 +870,9 @@ img { display: block; max-width: 100%; }
   .login-page { grid-template-columns: minmax(0, 1.05fr) minmax(440px, .95fr); }
   .auth-visual { display: block; min-height: 100svh; }
   .mobile-auth-brand { display: none; }
-  .auth-form-panel { padding: 40px clamp(35px, 6vw, 92px); }
-  .auth-form-wrap { margin: 0 auto; }
+  .auth-form-panel { padding: 40px clamp(35px, 6vw, 92px) max(40px, env(safe-area-inset-bottom)); }
+  /* .auth-form-wrap keeps its `margin: 0 auto` from the base rule; the brand is
+     hidden at this width, so nothing has to reserve room for it. */
   .registration-page { padding: 28px; }
   .workspace-content { padding: 36px 34px 50px; }
   .mobile-shell-bar { display: none; }
@@ -901,7 +921,12 @@ img { display: block; max-width: 100%; }
 
 @media (min-width: 1024px) {
   .app-shell { display: flex; }
-  .sidebar { position: sticky; top: 0; width: 252px; height: 100svh; flex: none; display: flex; flex-direction: column; padding: 29px 18px 21px; border-right: 1px solid var(--line); background: #0d1010; }
+  /* overflow-y keeps .sidebar-bottom reachable: on short windows (1024-1200px
+     tablets, laptops with a 700px-tall viewport) the brand + role + nav + tip
+     stack exceeds 100svh, and the Sign out button spilled below the viewport of
+     a fixed-height sticky box where it could never be scrolled to. */
+  .sidebar { position: sticky; top: 0; width: 252px; height: 100svh; flex: none; display: flex; flex-direction: column; padding: 29px 18px calc(21px + env(safe-area-inset-bottom)); border-right: 1px solid var(--line); background: #0d1010; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+  .sidebar > .brand, .sidebar-role, .sidebar-nav, .sidebar-bottom { flex: none; }
   .sidebar > .brand { padding: 0 8px; margin-bottom: 28px; gap: 12px; }
   .sidebar > .brand .brand-mark { width: 58px; height: 58px; border-radius: 16px; }
   .sidebar > .brand .brand-m { font-size: 34px; }
@@ -923,7 +948,11 @@ img { display: block; max-width: 100%; }
   .install-side-button { display: flex; align-items: center; gap: 8px; padding: 10px 11px; border: 1px solid rgba(232,185,126,.26); border-radius: 11px; color: var(--gold); background: var(--gold-wash); font-size: 11px; font-weight: 700; }
   .sidebar-tip { display: flex; align-items: flex-start; gap: 8px; padding: 11px; border-radius: 12px; color: var(--gold); background: rgba(255,255,255,.035); }
   .sidebar-tip p { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.4; }
-  .sidebar-logout { display: flex; align-items: center; gap: 8px; padding: 8px 11px; color: #a77774; background: transparent; font-size: 11px; font-weight: 700; }
+  /* Same destructive treatment as the mobile Account screen, so Sign out reads
+     as a control instead of muted 11px text that vanishes into the sidebar. */
+  .sidebar-logout { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 40px; padding: 8px 11px; border: 1px solid rgba(242, 123, 116, .2); border-radius: 11px; color: #ff9d95; background: rgba(242, 123, 116, .07); font-size: 11px; font-weight: 700; }
+  .sidebar-logout:hover { background: rgba(242, 123, 116, .14); border-color: rgba(242, 123, 116, .34); color: #ffc2bd; }
+  .sidebar-logout svg { flex: none; }
   .workspace { flex: 1; width: calc(100% - 252px); }
   .workspace-content { padding: 43px 5%; }
   .utility-content { max-width: 1300px; }

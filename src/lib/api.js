@@ -99,18 +99,44 @@ export function getServerUrl() {
   return API_BASE_URL;
 }
 
+// Uploads are reachable on the backend *only* under its `/getFiles` route, in
+// that exact casing (the mobile app registers the route as `/getFiles`, and a
+// case-sensitive router will not answer `/getfiles`). Stored paths are messy —
+// `/public/uploads/x.jpg`, `public/uploads/x.jpg`, an absolute backend URL, or
+// an already-prefixed `/getFiles/...` — so every one of them is normalised here.
+// Missing prefix was why ad images requested
+// `https://backend.mynaai.in/public/uploads/x.jpg` and never loaded.
+export const FILES_ROUTE_PREFIX = '/getFiles';
+const BACKEND_HOST = /(?:^|\.)mynaai\.in$/i;
+
+function withFilesPrefix(relativePath) {
+  const relative = relativePath.replace(/^\/+/, '').replace(/^getfiles\/+/i, '');
+  if (!relative) return '';
+  return `${API_BASE_URL}${FILES_ROUTE_PREFIX}/${relative}`;
+}
+
+// Rewrite a full URL that already points at our backend but skipped the route,
+// so images stored as absolute URLs still resolve. Other hosts (a CDN, Razorpay)
+// are left exactly as they are.
+function repairBackendFileUrl(value) {
+  try {
+    const url = new URL(value);
+    if (!BACKEND_HOST.test(url.hostname)) return value;
+    if (url.pathname.toLowerCase().startsWith(`${FILES_ROUTE_PREFIX.toLowerCase()}/`)) return value;
+    return `${url.origin}${FILES_ROUTE_PREFIX}/${url.pathname.replace(/^\/+/, '')}${url.search}${url.hash}`;
+  } catch {
+    return value;
+  }
+}
+
 export function getFileUrl(path) {
   if (!path) return '';
   if (typeof path !== 'string') return '';
   const value = path.trim();
   if (!value) return '';
-  if (/^(https?:|data:|blob:)/i.test(value)) return value;
+  if (/^(https?:|data:|blob:)/i.test(value)) return repairBackendFileUrl(value);
   if (value.startsWith('/assets/')) return value;
-  // The mobile app serves uploaded files from `/getfiles/<path>` (lowercase).
-  const filesMatch = value.match(/\/getfiles\/(.+)$/i);
-  if (filesMatch) return `${API_BASE_URL}/getfiles/${filesMatch[1].replace(/^\/+/, '')}`;
-  if (value.startsWith('/')) return `${API_BASE_URL}${value}`;
-  return `${API_BASE_URL}/getfiles/${value.replace(/^\/+/, '')}`;
+  return withFilesPrefix(value);
 }
 
 function queryString(params = {}) {
