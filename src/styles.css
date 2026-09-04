@@ -376,7 +376,7 @@ img { display: block; max-width: 100%; }
    .workspace-content padding-bottom). The old rule used `space-between` with a
    single label — which left the word stranded at the left edge of a full-width
    bar with a dead `.logout-arrow` slot on the right. */
-.logout-button { width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 50px; padding: 13px 15px; border: 1px solid rgba(242, 123, 116, .22); border-radius: 14px; color: var(--red); background: rgba(242,123,116,.08); font-size: 13px; font-weight: 700; }
+.logout-button { width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 50px; margin-bottom: 16px; padding: 13px 15px; border: 1px solid rgba(242, 123, 116, .22); border-radius: 14px; color: var(--red); background: rgba(242,123,116,.08); font-size: 13px; font-weight: 700; }
 .logout-button svg { flex: none; }
 .logout-button:hover { background: rgba(242, 123, 116, .14); border-color: rgba(242, 123, 116, .34); }
 .logout-button:active { background: rgba(242, 123, 116, .2); }
@@ -596,9 +596,13 @@ img { display: block; max-width: 100%; }
 .push-setup-copy strong { display: block; font-size: 12px; }
 .push-setup-copy p { margin: 4px 0 0; color: var(--muted); font-size: 10px; line-height: 1.4; }
 .push-setup-card .btn { flex: none; }
+.push-setup-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex: none; }
+.push-setup-actions .btn { min-height: 34px; }
 .push-setup-compact { margin: 18px 0 0; max-width: 520px; background: rgba(0,0,0,.28); }
 .push-setup-compact .push-setup-copy strong { font-size: 11px; }
 .push-setup-compact .push-setup-copy p { color: #c6cbca; }
+.ios-install-steps { display: flex; flex-direction: column; gap: 9px; margin: 0 0 6px; padding-left: 19px; color: var(--muted-light); font-size: 12px; line-height: 1.55; }
+.ios-install-steps strong { color: var(--white); }
 .permission-prompt-stack { display: flex; flex-direction: column; gap: 8px; margin: 0 0 16px; }
 .permission-prompt-stack:empty { display: none; margin: 0; }
 .permission-prompt-stack .push-setup-card { margin: 0; }
@@ -994,8 +998,9 @@ img { display: block; max-width: 100%; }
   .request-card-top { align-items: flex-start; }
   .request-actions > div { flex-wrap: wrap; }
   .request-actions > div .btn { min-width: 0; }
-  .push-setup-card { align-items: flex-start; }
+  .push-setup-card { align-items: flex-start; flex-wrap: wrap; }
   .push-setup-card .btn { min-height: 34px; padding: 0 9px; font-size: 10px; }
+  .push-setup-actions { width: 100%; }
   .push-setup-copy p { font-size: 9px; }
   .editor-section-heading { flex-wrap: wrap; }
   .editor-heading-actions { width: 100%; justify-content: flex-start; }
