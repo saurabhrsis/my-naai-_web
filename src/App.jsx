@@ -11,7 +11,6 @@ import {
   Info,
   LogOut,
   MapPin,
-  Menu,
   Package,
   Scissors,
   Settings2,
@@ -49,7 +48,7 @@ import {
 } from './components/SalonScreens';
 import { SubscriptionScreen } from './components/SubscriptionScreen';
 import { SALON_ABOUT_CONTENT, SALON_FAQ_CONTENT, SALON_TERMS_CONTENT } from './lib/salonContent';
-import { Button, Field, SelectField, Spinner, getBrowserLocation, getErrorMessage, cx } from './components/Shared';
+import { Button, Field, Modal, SelectField, Spinner, getBrowserLocation, getErrorMessage, cx } from './components/Shared';
 
 const USER_NAV = [
   { name: 'home', label: 'Discover', icon: Scissors },
@@ -87,10 +86,17 @@ function saveSession(session) {
 }
 
 const PUSH_REQUIRED_MESSAGE = 'Notifications are required to continue. Tap Enable, allow notifications for this site, then try again.';
+const IOS_PUSH_REQUIRED_MESSAGE = 'On iPhone, add My Naai to your Home Screen first, then allow notifications and log in. Tap "Enable notifications" on this screen for the steps.';
 
 async function requirePushToken() {
   const token = await getPushToken({ requestPermission: true });
-  if (!token) throw new Error(PUSH_REQUIRED_MESSAGE);
+  if (!token) {
+    // A token can never be created in regular iOS Safari (web push only exists
+    // for Home Screen apps). Point the user at the install steps instead of the
+    // generic "allow notifications" copy, which describes a dialog iOS never shows.
+    if (isIosDevice() && !isIosPwaInstalled()) throw new Error(IOS_PUSH_REQUIRED_MESSAGE);
+    throw new Error(PUSH_REQUIRED_MESSAGE);
+  }
   return token;
 }
 
@@ -111,6 +117,19 @@ async function queryLocationPermission() {
     console.debug(getErrorMessage(error, 'Could not check location permission.'));
   }
   return 'prompt';
+}
+
+// iOS only exposes web push to installed PWAs (iOS 16.4+). Regular Safari has
+// no PushManager, so a notification token can never be created there. Detect
+// that case so the notification card can guide the user to Add to Home Screen
+// instead of hiding every action and stranding them at login.
+function isIosDevice() {
+  if (typeof navigator === 'undefined') return false;
+  return /iphone|ipad|ipod/i.test(navigator.userAgent || '') || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+
+function isIosPwaInstalled() {
+  return isIosDevice() && (window.matchMedia?.('(display-mode: standalone)').matches === true || navigator.standalone === true);
 }
 
 // Opens the browser’s own notification and location dialogs together, from one
@@ -199,6 +218,7 @@ function NotificationSetupCard({ compact = false, notifyInstall = null, onEnable
   const [status, setStatus] = useState('checking');
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
+  const [iosHelpOpen, setIosHelpOpen] = useState(false);
   const onEnabledRef = useRef(onEnabled);
   onEnabledRef.current = onEnabled;
 
@@ -246,12 +266,31 @@ function NotificationSetupCard({ compact = false, notifyInstall = null, onEnable
     return () => { active = false; };
   }, []);
 
+  // Re-check whenever the tab regains focus or visibility. This is what picks
+  // up a permission that was just granted — in the browser's site settings, in
+  // another tab, or after returning to the installed PWA — without a manual
+  // reload, so the card (and login) stops saying "Enable" the moment the
+  // browser actually allows notifications.
+  useEffect(() => {
+    const recheck = () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      inspect(false);
+    };
+    window.addEventListener('focus', recheck);
+    document.addEventListener('visibilitychange', recheck);
+    return () => {
+      window.removeEventListener('focus', recheck);
+      document.removeEventListener('visibilitychange', recheck);
+    };
+  }, [inspect]);
+
   const enable = async () => {
     setBusy(true);
     try { await inspect(true); } finally { setBusy(false); }
   };
 
   if (['checking', 'enabled'].includes(status)) return null;
+  const needsIosInstall = status === 'unsupported' && isIosDevice() && !isIosPwaInstalled();
   const copy = {
     unconfigured: { title: 'Notifications are required', body: reason || 'My Naai needs a notification token to log you in. This site is not set up for web alerts yet — contact support, or use the My Naai app.' },
     unsupported: { title: 'Notifications are required', body: reason || 'This browser cannot create a notification token. Use Chrome, Edge or Samsung Internet, or install My Naai to your home screen on iPhone and iPad.' },
@@ -259,14 +298,35 @@ function NotificationSetupCard({ compact = false, notifyInstall = null, onEnable
     'needs-permission': { title: 'You must enable notifications', body: 'Tap Enable and choose Allow. My Naai needs this to log you in and to send booking buzzers, delay requests and appointment updates.' },
     unavailable: { title: 'You must enable notifications', body: reason || 'We could not create a notification token yet. Tap Enable and allow notifications, then try again.' },
   }[status] || { title: 'You must enable notifications', body: reason };
-  const canRetry = !['unsupported'].includes(status);
+  // The Enable action must always be visible (like the location card): on an
+  // iPhone it opens the Add-to-Home-Screen steps, and everywhere else it runs
+  // the normal permission/token flow. No browser is left without a next step.
   return (
     <section className={cx('push-setup-card', compact && 'push-setup-compact')} aria-live="polite">
       <span className="push-setup-icon"><Bell size={compact ? 15 : 18} /></span>
       <div className="push-setup-copy"><strong>{copy.title}</strong><p>{copy.body}</p></div>
-      {status === 'unsupported' && notifyInstall && <Button size="small" onClick={notifyInstall}><Download size={14} /> Install app</Button>}
-      {canRetry && <Button size="small" onClick={enable} loading={busy}>Enable</Button>}
+      <div className="push-setup-actions">
+        {status === 'unsupported' && notifyInstall && <Button size="small" onClick={notifyInstall}><Download size={14} /> Install app</Button>}
+        {needsIosInstall
+          ? <Button size="small" onClick={() => setIosHelpOpen(true)}>Enable</Button>
+          : <Button size="small" onClick={enable} loading={busy}>Enable</Button>}
+      </div>
+      {needsIosInstall && <IosInstallHelp open={iosHelpOpen} onClose={() => { setIosHelpOpen(false); inspect(false); }} />}
     </section>
+  );
+}
+
+function IosInstallHelp({ open, onClose }) {
+  return (
+    <Modal open={open} onClose={onClose} title="Enable notifications on iPhone" footer={<Button onClick={onClose}>Got it</Button>}>
+      <p className="modal-lede">iPhone only allows web notifications after My Naai is added to your Home Screen. It takes a few seconds:</p>
+      <ol className="ios-install-steps">
+        <li>In Safari, tap the <strong>Share</strong> button (the square with an arrow) at the bottom of the screen.</li>
+        <li>Scroll the menu and choose <strong>Add to Home Screen</strong>.</li>
+        <li>Tap <strong>Add</strong>, then open <strong>My Naai</strong> from your Home Screen.</li>
+        <li>Tap <strong>Enable</strong> and choose <strong>Allow</strong> when asked, then log in.</li>
+      </ol>
+    </Modal>
   );
 }
 
@@ -913,7 +973,7 @@ function AppShell({ session, route, navigate, onLogout, onSessionUpdate, notifyI
   return <div className={cx('app-shell', isSalon && 'salon-shell', isSubscriptionGateScreen && 'subscription-gate-shell', !showBottomNav && 'utility-shell')}>
     {!isSubscriptionGateScreen && <Sidebar session={session} nav={nav} route={route} navigate={shellNavigate} onLogout={onLogout} notifyInstall={notifyInstall} />}
     <main className="workspace">
-      {!isSubscriptionGateScreen && <div className="mobile-shell-bar"><Brand /><button className="mobile-menu-button" aria-label="Open menu"><Menu size={20} /></button></div>}
+      {!isSubscriptionGateScreen && <div className="mobile-shell-bar"><Brand /><button className="notification-button" aria-label="Notifications" onClick={() => shellNavigate('notifications')}><Bell size={18} /><span className="notification-ping" /></button></div>}
       <div className={cx('workspace-content', (isSubscriptionGateScreen || utilityRoutes.includes(route.name)) && 'utility-content', isSubscriptionGateScreen && 'subscription-gate-content')}>
         {isSubscriptionLocked && (
           <div className="subscription-lock-notice" role="alert">
@@ -937,7 +997,7 @@ function SubscriptionGateLoading() {
 
 function Sidebar({ session, nav, route, navigate, onLogout, notifyInstall }) {
   const isSalon = session.role === 'SALON';
-  return <aside className="sidebar"><Brand /><div className="sidebar-role"><span className="role-mark">{isSalon ? <Store size={15} /> : <Scissors size={15} />}</span><span><small>Signed in as</small><strong>{isSalon ? 'Salon partner' : 'Customer'}</strong></span></div><nav className="sidebar-nav">{nav.map(item => <button key={item.name} className={route.name === item.name ? 'active' : ''} onClick={() => navigate(item.name)}><item.icon size={18} /><span>{item.label}</span>{route.name === item.name && <i />}</button>)}</nav><div className="sidebar-bottom">{notifyInstall && <button className="install-side-button" onClick={notifyInstall}><Download size={16} /><span>Install My Naai</span></button>}<div className="sidebar-tip"><Sparkles size={16} /><p>{isSalon ? 'Keep your profile fresh to stand out nearby.' : 'Your next great look is closer than you think.'}</p></div><button className="sidebar-logout" onClick={onLogout}><LogOut size={16} /> Sign out</button></div></aside>;
+  return <aside className="sidebar"><Brand /><div className="sidebar-role"><span className="role-mark">{isSalon ? <Store size={15} /> : <Scissors size={15} />}</span><span><small>Signed in as</small><strong>{isSalon ? 'Salon partner' : 'Customer'}</strong></span></div><nav className="sidebar-nav"><button className={route.name === 'notifications' ? 'active' : ''} onClick={() => navigate('notifications')}><Bell size={18} /><span>Notifications</span>{route.name === 'notifications' && <i />}</button>{nav.map(item => <button key={item.name} className={route.name === item.name ? 'active' : ''} onClick={() => navigate(item.name)}><item.icon size={18} /><span>{item.label}</span>{route.name === item.name && <i />}</button>)}</nav><div className="sidebar-bottom">{notifyInstall && <button className="install-side-button" onClick={notifyInstall}><Download size={16} /><span>Install My Naai</span></button>}<div className="sidebar-tip"><Sparkles size={16} /><p>{isSalon ? 'Keep your profile fresh to stand out nearby.' : 'Your next great look is closer than you think.'}</p></div><button className="sidebar-logout" onClick={onLogout}><LogOut size={16} /> Sign out</button></div></aside>;
 }
 
 function MobileNav({ nav, route, navigate }) { return <nav className="mobile-nav">{nav.map(item => <button key={item.name} className={route.name === item.name ? 'active' : ''} onClick={() => navigate(item.name)}><item.icon size={20} /><span>{item.label.replace('Customer ', '').replace('My ', '')}</span></button>)}</nav>; }

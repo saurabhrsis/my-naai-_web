@@ -110,13 +110,18 @@ export async function getPushStatus() {
   if (typeof window === 'undefined' || !('Notification' in window)) return { state: 'unsupported', reason: 'This browser cannot show notifications.' };
   if (!('serviceWorker' in navigator)) return { state: 'unsupported', reason: 'This browser cannot run web notifications. Try Chrome, Edge or Samsung Internet.' };
   if (!isPushConfigured()) return { state: 'unconfigured', reason: 'Notifications have not been enabled for this build yet — please contact My Naai support.' };
-  if (Notification.permission === 'denied') return { state: 'denied', reason: 'Notifications are blocked in the browser permissions for this site.' };
+  // Check messaging capability BEFORE the permission state: on iOS Safari the
+  // permission value is meaningless until the app is installed as a PWA, and
+  // reporting "denied" there would send iPhone users to a browser setting that
+  // does not exist. No PushManager => the install hint is the correct guidance.
   const messaging = await getMessagingClient();
   if (!messaging) {
     // iOS only exposes web push to installed PWAs (iOS 16.4+).
-    const installedHint = window.matchMedia?.('(display-mode: standalone)').matches ? '' : ' On iPhone/iPad, install the My Naai app to your home screen first.';
+    const installed = window.matchMedia?.('(display-mode: standalone)').matches === true || navigator.standalone === true;
+    const installedHint = installed ? '' : ' On iPhone/iPad, install the My Naai app to your home screen first.';
     return { state: 'unsupported', reason: `This browser context cannot receive web notifications.${installedHint}` };
   }
+  if (Notification.permission === 'denied') return { state: 'denied', reason: 'Notifications are blocked in the browser permissions for this site.' };
   if (Notification.permission === 'default') return { state: 'needs-permission', reason: 'Notification permission has not been granted yet.' };
   try {
     const token = await getPushToken({ requestPermission: false });
