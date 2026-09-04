@@ -591,6 +591,14 @@ img { display: block; max-width: 100%; }
 .subscription-gate-loading p { margin: 9px auto 18px; color: var(--muted); font-size: 13px; line-height: 1.5; }
 .subscription-gate-loading .spinner-wrap { color: var(--gold); font-size: 12px; }
 .forced-renewal-screen .page-header { margin-bottom: 15px; }
+.subscription-lock-notice .subscription-lock-logout { margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: 5px; padding: 6px 10px; border-radius: 9px; color: #ffd2cd; background: rgba(0,0,0,.18); border: 1px solid rgba(242,123,116,.32); font-size: 11px; font-weight: 700; }
+.subscription-lock-notice .subscription-lock-logout:hover { background: rgba(242,123,116,.14); }
+.forced-renewal-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; max-width: 670px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); flex-wrap: wrap; }
+.forced-renewal-logout { display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; border-radius: 10px; color: #ffb3ad; background: rgba(242,123,116,.1); border: 1px solid rgba(242,123,116,.22); font-size: 12px; font-weight: 700; }
+.forced-renewal-logout:hover { background: rgba(242,123,116,.16); }
+.forced-renewal-help { color: var(--muted); font-size: 11px; }
+.forced-renewal-help a { color: var(--gold); text-decoration: none; font-weight: 700; }
+.forced-renewal-help a:hover { text-decoration: underline; }
 .profile-editor { display: flex; flex-direction: column; gap: 13px; max-width: 920px; }
 .editor-section { padding: 14px; border: 1px solid rgba(255, 255, 255, .12); border-radius: 18px; background: #1a1f1e; }
 .editor-section.needs-attention { border-color: rgba(242, 123, 116, .45); background: linear-gradient(180deg, rgba(242, 123, 116, .07), rgba(242, 123, 116, 0) 62%), #1a1f1e; }

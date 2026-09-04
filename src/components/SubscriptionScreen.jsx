@@ -6,6 +6,7 @@ import {
   CircleAlert,
   Crown,
   LoaderCircle,
+  LogOut,
   Phone,
   Smartphone,
   WalletCards,
@@ -68,7 +69,7 @@ const PAYMENT_STATE_COPY = {
   activating: { title: 'Activating your plan…', text: 'Payment received. My Naai is updating your subscription now.' },
 };
 
-export function SubscriptionScreen({ params = {}, session, navigate, notify, onAuthComplete, onSessionUpdate }) {
+export function SubscriptionScreen({ params = {}, session, navigate, notify, onAuthComplete, onSessionUpdate, onLogout }) {
   const registrationData = params.registrationData;
   const isRegistration = Boolean(registrationData);
   const isForcedRenewal = !isRegistration && Boolean(params.forceRenewal || params.forceRenewal === 'true');
@@ -138,10 +139,17 @@ export function SubscriptionScreen({ params = {}, session, navigate, notify, onA
       profileCompleted: true,
     }, {});
     setPaymentState('idle');
-    notify?.('success', 'Plan renewed successfully.');
-    navigate('account', {}, { replace: true });
+    notify?.('success', 'Plan renewed successfully. Welcome back!');
+    // When renewal was forced by expiry, send the salon straight to the queue
+    // so full software access is restored immediately. Normal upgrades go to
+    // account.
+    if (isForcedRenewal) {
+      navigate('queue', {}, { replace: true });
+    } else {
+      navigate('account', {}, { replace: true });
+    }
     return 'renew';
-  }, [navigate, notify, onAuthComplete, onSessionUpdate]);
+  }, [isForcedRenewal, navigate, notify, onAuthComplete, onSessionUpdate]);
 
   // A successful payment that could not be recorded is the one dangerous
   // failure: tell the partner exactly what happened, with the references
@@ -402,5 +410,11 @@ export function SubscriptionScreen({ params = {}, session, navigate, notify, onA
       <span>{gateway.status === 'ready' ? 'Secure payments powered by Razorpay · UPI, cards, netbanking and wallets' : gateway.status === 'checking' ? 'Preparing Razorpay Checkout…' : 'Razorpay Checkout could not load on this network'}</span>
       {gateway.status !== 'ready' && <button type="button" onClick={gateway.check}>Retry</button>}
     </div>
+    {isForcedRenewal && onLogout && (
+      <div className="forced-renewal-footer">
+        <button className="forced-renewal-logout" onClick={onLogout}><LogOut size={15} /> Sign out</button>
+        <span className="forced-renewal-help">Need help? Call <a href={`tel:${SUPPORT_PHONE}`}>{SUPPORT_PHONE}</a></span>
+      </div>
+    )}
   </div>;
 }

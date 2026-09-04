@@ -548,6 +548,8 @@ function AppShell({ session, route, navigate, onLogout, onSessionUpdate, notifyI
     // expiry can happen while the portal is closed.
     return cachedSubscription.expired ? 'locked' : 'checking';
   });
+  const subscriptionGateRef = useRef(subscriptionGate);
+  useEffect(() => { subscriptionGateRef.current = subscriptionGate; }, [subscriptionGate]);
   const routeName = useRef(route.name);
   useEffect(() => { routeName.current = route.name; }, [route.name]);
 
@@ -629,6 +631,21 @@ function AppShell({ session, route, navigate, onLogout, onSessionUpdate, notifyI
     return () => window.removeEventListener('mynaai:plan-expired', onPlanExpired);
   }, [forceSalonRenewal, isSalon]);
 
+  // Guarded navigation: when subscription is locked, only the renewal
+  // screen is allowed. This prevents any hash manipulation or in-app
+  // navigation from escaping the paywall until payment succeeds.
+  const safeNavigate = useCallback((screen, params = {}, options = {}) => {
+    const targetName = typeof screen === 'object' ? screen.name : screen;
+    if (subscriptionGateRef.current === 'locked' && targetName !== 'subscription') {
+      // Force back to renewal — do not allow any other screen.
+      if (routeName.current !== 'subscription') {
+        navigate('subscription', { mode: 'RENEW', forceRenewal: true }, { replace: true });
+      }
+      return;
+    }
+    navigate(screen, params, options);
+  }, [navigate]);
+
   useEffect(() => {
     if (!isSalon || subscriptionGate !== 'locked') return;
     if (route.name !== 'subscription' || route.params?.mode !== 'RENEW' || !flagIsTrue(route.params?.forceRenewal)) {
@@ -640,6 +657,8 @@ function AppShell({ session, route, navigate, onLogout, onSessionUpdate, notifyI
   // so My Naai renders the notification itself, toasts it, and only auto-navigates
   // for time-critical actions (a salon booking request, a delay proposal). An
   // informational message must never yank a customer out of the booking flow.
+  // When the subscription is locked, actionable navigation is suppressed — the
+  // salon must renew first, even if a booking request arrives.
   useEffect(() => {
     let cancelled = false;
     let unsubscribe = () => {};
@@ -648,6 +667,9 @@ function AppShell({ session, route, navigate, onLogout, onSessionUpdate, notifyI
         if (cancelled) return;
         const message = normalizePushPayload(payload);
         recordForegroundMessage(message);
+        // If locked, still show the OS notification but do not auto-navigate
+        // away from the renewal paywall.
+        const isLocked = subscriptionGateRef.current === 'locked';
         displayNotification({
           title: message.title,
           body: message.body,
@@ -655,20 +677,26 @@ function AppShell({ session, route, navigate, onLogout, onSessionUpdate, notifyI
           // If this browser cannot attach a service-worker notification click,
           // the Notification API fallback still opens the same route.
           onClick: () => {
+            if (subscriptionGateRef.current === 'locked') {
+              safeNavigate('subscription', { mode: 'RENEW', forceRenewal: true }, { replace: true });
+              return;
+            }
             const next = getNotificationRoute(message.data, session.role);
-            if (next.name && next.name !== routeName.current) navigate(next.name, next.params);
+            if (next.name && next.name !== routeName.current) safeNavigate(next.name, next.params);
           },
         });
         notify('info', `${message.title}${message.body && message.body !== message.title ? ` — ${message.body}` : ''}`);
         // Time-critical notification: sound the booking buzzer + vibrate, like
         // the mobile app. Informational messages stay silent by design.
+        // Suppress buzzer navigation when locked — renewal is the only focus.
+        if (isLocked) return;
         if (isActionableNotification(message.type, session.role)) {
           playBuzzer({ type: message.type });
         }
         if (!isActionableNotification(message.type, session.role)) return;
         const next = getNotificationRoute(message.data, session.role);
         if (!next.name || next.name === routeName.current) return;
-        navigate(next.name, next.params);
+        safeNavigate(next.name, next.params);
       },
     }).then(result => {
       if (cancelled) result?.unsubscribe?.();
@@ -677,7 +705,7 @@ function AppShell({ session, route, navigate, onLogout, onSessionUpdate, notifyI
       if (!cancelled) console.debug(getErrorMessage(pushError, 'Live browser notifications are unavailable.'));
     });
     return () => { cancelled = true; unsubscribe(); };
-  }, [navigate, notify, session.role, session.userId]);
+  }, [safeNavigate, notify, session.role, session.userId]);
 
   const handleSessionUpdate = useCallback((user = {}, sessionPatch = {}) => {
     onSessionUpdate?.(user, sessionPatch);
@@ -694,7 +722,10 @@ function AppShell({ session, route, navigate, onLogout, onSessionUpdate, notifyI
   const isCheckingSubscription = isSalon && !session.isNewSalon && subscriptionGate === 'checking';
   const isSubscriptionGateScreen = isSubscriptionLocked || isCheckingSubscription;
   const render = () => {
-    const props = { session, navigate, notify, onSessionUpdate: handleSessionUpdate };
+    // When locked, only renewal is allowed — all screens receive safeNavigate
+    // so even if they attempt to navigate elsewhere, the paywall holds.
+    const navForScreens = isSubscriptionLocked ? safeNavigate : navigate;
+    const props = { session, navigate: navForScreens, notify, onSessionUpdate: handleSessionUpdate };
     if (isSalon && session.isNewSalon && route.name !== 'editProfile') return <EditSalonProfileScreen {...props} params={{ ...(route.params || {}), isOnboarding: 'true' }} />;
     if (!isSalon) {
       if (route.name === 'home') return <HomeScreen {...props} />;
@@ -706,7 +737,7 @@ function AppShell({ session, route, navigate, onLogout, onSessionUpdate, notifyI
       if (route.name === 'schedule') return <ScheduleScreen {...props} params={route.params} />;
       if (route.name === 'notifications') return <NotificationsScreen {...props} />;
       if (route.name === 'delay') return <DelayRequestScreen {...props} params={route.params} />;
-      if (['about', 'faq', 'terms'].includes(route.name)) return <InfoScreen type={route.name} navigate={navigate} />;
+      if (['about', 'faq', 'terms'].includes(route.name)) return <InfoScreen type={route.name} navigate={navForScreens} />;
       return <HomeScreen {...props} />;
     }
     if (route.name === 'queue') return <SalonQueueScreen {...props} />;
@@ -717,27 +748,38 @@ function AppShell({ session, route, navigate, onLogout, onSessionUpdate, notifyI
     if (route.name === 'editProfile') return <EditSalonProfileScreen {...props} params={route.params} />;
     if (route.name === 'bookingRequest') return <BookingRequestScreen {...props} params={route.params} />;
     if (route.name === 'subscription') return <SubscriptionScreen {...props} params={route.params} />;
-    if (route.name === 'salonAbout') return <PartnerInfo type="about" navigate={navigate} />;
-    if (route.name === 'salonFaq') return <PartnerInfo type="faq" navigate={navigate} />;
-    if (route.name === 'salonTerms') return <PartnerInfo type="terms" navigate={navigate} />;
+    if (route.name === 'salonAbout') return <PartnerInfo type="about" navigate={navForScreens} />;
+    if (route.name === 'salonFaq') return <PartnerInfo type="faq" navigate={navForScreens} />;
+    if (route.name === 'salonTerms') return <PartnerInfo type="terms" navigate={navForScreens} />;
     return <SalonQueueScreen {...props} />;
   };
+  // When plan expired, show ONLY the renewal screen — no queue, no history,
+  // no account. After successful payment, handleSessionUpdate flips the gate
+  // to active and the full portal is unlocked.
   const gateContent = isSubscriptionLocked
-    ? <SubscriptionScreen {...{ session, navigate, notify }} params={{ mode: 'RENEW', forceRenewal: true }} onSessionUpdate={handleSessionUpdate} />
+    ? <SubscriptionScreen session={session} navigate={safeNavigate} notify={notify} params={{ mode: 'RENEW', forceRenewal: true }} onSessionUpdate={handleSessionUpdate} onLogout={onLogout} />
     : isCheckingSubscription
       ? <SubscriptionGateLoading />
       : render();
+  // Navigation for shell chrome should also respect the paywall.
+  const shellNavigate = isSubscriptionLocked ? safeNavigate : navigate;
   return <div className={cx('app-shell', isSalon && 'salon-shell', isSubscriptionGateScreen && 'subscription-gate-shell', !showBottomNav && 'utility-shell')}>
-    {!isSubscriptionGateScreen && <Sidebar session={session} nav={nav} route={route} navigate={navigate} onLogout={onLogout} notifyInstall={notifyInstall} />}
+    {!isSubscriptionGateScreen && <Sidebar session={session} nav={nav} route={route} navigate={shellNavigate} onLogout={onLogout} notifyInstall={notifyInstall} />}
     <main className="workspace">
       {!isSubscriptionGateScreen && <div className="mobile-shell-bar"><Brand /><button className="mobile-menu-button" aria-label="Open menu"><Menu size={20} /></button></div>}
       <div className={cx('workspace-content', (isSubscriptionGateScreen || utilityRoutes.includes(route.name)) && 'utility-content', isSubscriptionGateScreen && 'subscription-gate-content')}>
-        {isSubscriptionLocked && <div className="subscription-lock-notice" role="alert"><CircleAlert size={17} /><span><strong>Your salon subscription has expired.</strong> Renew now to unlock your salon dashboard. Customers do not make payments here.</span></div>}
+        {isSubscriptionLocked && (
+          <div className="subscription-lock-notice" role="alert">
+            <CircleAlert size={17} />
+            <span><strong>Your salon subscription has expired.</strong> Renew now to unlock your salon dashboard. Customers do not make payments here.</span>
+            <button className="subscription-lock-logout" onClick={onLogout} aria-label="Sign out"><LogOut size={14} /> Sign out</button>
+          </div>
+        )}
         {!isSubscriptionGateScreen && route.name === 'account' && <NotificationSetupCard notifyInstall={notifyInstall} />}
         {gateContent}
       </div>
     </main>
-    {!isSubscriptionGateScreen && showBottomNav && <MobileNav nav={nav} route={route} navigate={navigate} />}
+    {!isSubscriptionGateScreen && showBottomNav && <MobileNav nav={nav} route={route} navigate={shellNavigate} />}
     {toast && <div className="toast-position"><div className={cx('toast', `toast-${toast.type || 'info'}`)} role="status"><span className="toast-mark">{toast.type === 'error' ? '!' : '✓'}</span><span>{toast.message}</span><button onClick={() => setToast(null)} aria-label="Dismiss"><X size={15} /></button></div></div>}
   </div>;
 }
