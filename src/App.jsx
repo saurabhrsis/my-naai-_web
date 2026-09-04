@@ -3,6 +3,7 @@ import {
   Bell,
   CalendarCheck2,
   ChevronRight,
+  CircleAlert,
   CircleUserRound,
   Download,
   HelpCircle,
@@ -159,18 +160,43 @@ function NotificationSetupCard({ compact = false, notifyInstall = null }) {
   const [busy, setBusy] = useState(false);
 
   const inspect = useCallback(async (requestPermission = false) => {
-    const result = await getPushStatus();
-    if (result.state === 'needs-permission' && requestPermission) {
-      const token = await getPushToken({ requestPermission: true });
-      setStatus(token ? 'enabled' : 'unavailable');
-      setReason(token ? '' : 'We could not prepare notifications for this browser. Please try again.');
-      return;
+    if (requestPermission) {
+      // Request permission and token directly, then re-evaluate the full
+      // status so denied/unavailable are surfaced correctly.
+      try {
+        const token = await getPushToken({ requestPermission: true });
+        if (token) {
+          setStatus('enabled');
+          setReason('');
+          return;
+        }
+      } catch (inspectError) {
+        console.debug(getErrorMessage(inspectError, 'Notification status check failed.'));
+      }
     }
-    setStatus(result.state);
-    setReason(result.reason || '');
+    try {
+      const result = await getPushStatus();
+      setStatus(result.state);
+      setReason(result.reason || '');
+    } catch (statusError) {
+      console.debug(getErrorMessage(statusError, 'Could not check notification status.'));
+      setStatus('unavailable');
+      setReason('We could not check notification status. Please try again.');
+    }
   }, []);
 
-  useEffect(() => { let active = true; getPushStatus().then(result => { if (active) { setStatus(result.state); setReason(result.reason || ''); } }); return () => { active = false; }; }, []);
+  useEffect(() => {
+    let active = true;
+    getPushStatus()
+      .then(result => { if (active) { setStatus(result.state); setReason(result.reason || ''); } })
+      .catch(error => {
+        if (!active) return;
+        console.debug(getErrorMessage(error, 'Could not check notification status.'));
+        setStatus('unavailable');
+        setReason('We could not check notification status. Please try again.');
+      });
+    return () => { active = false; };
+  }, []);
 
   const enable = async () => {
     setBusy(true);
@@ -317,12 +343,6 @@ export default function App() {
       window.removeEventListener('mynaai:session-expired', onSessionExpired);
     };
   }, []);
-  useEffect(() => {
-    if (session?.role !== 'SALON') return undefined;
-    const onPlanExpired = () => forceSalonRenewal();
-    window.addEventListener('mynaai:plan-expired', onPlanExpired);
-    return () => window.removeEventListener('mynaai:plan-expired', onPlanExpired);
-  }, [forceSalonRenewal, session?.role]);
   const install = async () => {
     const promptEvent = installPrompt;
     if (!promptEvent) return;
@@ -453,7 +473,9 @@ function SalonRegistration({ initialData, onBack, onComplete, notifyInstall }) {
   const [locationError, setLocationError] = useState('');
   const [busy, setBusy] = useState(false);
   const [registrationPushToken, setRegistrationPushToken] = useState(pushToken);
+  const latestTokenRef = React.useRef(pushToken || '');
   const [error, setError] = useState('');
+  useEffect(() => { latestTokenRef.current = registrationPushToken || pushToken || latestTokenRef.current; }, [registrationPushToken, pushToken]);
   const detectLocation = useCallback(async () => {
     setLocationBusy(true);
     setLocationError('');
@@ -493,15 +515,17 @@ function SalonRegistration({ initialData, onBack, onComplete, notifyInstall }) {
       const currentLocation = latitude !== null && longitude !== null ? { latitude, longitude } : await detectLocation();
       if (!currentLocation) throw new Error('Detect your salon location before continuing.');
       const token = await requirePushToken();
-      setStep('plans');
-      // Keep the freshly generated token in the registration payload even when
-      // the React state update is still being batched for the next render.
+      latestTokenRef.current = token;
       setRegistrationPushToken(token);
+      setStep('plans');
     } catch (businessError) {
       setError(getErrorMessage(businessError, PUSH_REQUIRED_MESSAGE));
     } finally { setBusy(false); }
   };
-  if (step === 'plans') return <SubscriptionScreen params={{ registrationData: { ...profile, phoneNumber: mobile, tempToken, genderType: business.genderType, agentCode: business.agentCode, deviceToken: registrationPushToken, latitude: Number(latitude), longitude: Number(longitude), businessHours: { openingTime: `${business.openingTime}:00`, closingTime: `${business.closingTime}:00`, breakStartTime: null, breakEndTime: null }, services: DEFAULT_SERVICES[business.genderType.toLowerCase()] || [] }, onBack }} notify={(type, message) => setError(message)} onAuthComplete={onComplete} />;
+  if (step === 'plans') {
+    const effectiveToken = registrationPushToken || latestTokenRef.current || pushToken;
+    return <SubscriptionScreen params={{ registrationData: { ...profile, phoneNumber: mobile, tempToken, genderType: business.genderType, agentCode: business.agentCode, deviceToken: effectiveToken, latitude: Number(latitude), longitude: Number(longitude), businessHours: { openingTime: `${business.openingTime}:00`, closingTime: `${business.closingTime}:00`, breakStartTime: null, breakEndTime: null }, services: DEFAULT_SERVICES[business.genderType.toLowerCase()] || [] }, onBack }} notify={(type, message) => setError(message)} onAuthComplete={onComplete} />;
+  }
   const title = step === 'profile' ? 'Tell us about you.' : 'Set up your day.';
   return <div className="auth-page registration-page"><div className="registration-back"><button className="icon-btn ghost" onClick={step === 'profile' ? onBack : () => setStep('profile')} aria-label="Go back"><ChevronRight size={19} className="rotate-180" /></button><Brand />{notifyInstall && <button className="install-auth-button registration-install-button" onClick={notifyInstall}><Download size={14} /> Install app</button>}</div><div className="registration-card"><div className="registration-progress"><span className="active" /><span className={step === 'business' ? 'active' : ''} /><span /><span /></div><span className="eyebrow">SALON PARTNER · STEP {step === 'profile' ? '2' : '3'} OF 3</span><h1>{title}</h1><p className="auth-subtitle">{step === 'profile' ? 'A few details help customers find you.' : 'Tell us when you are ready for your next customer.'}</p><NotificationSetupCard compact />{error && <div className="form-error"><Info size={16} />{error}</div>}{step === 'profile' && <form onSubmit={continueProfile}><Field label="Mobile number"><div className="phone-input"><span>+91</span><input inputMode="numeric" value={mobile} readOnly aria-label="Registered mobile number" /></div></Field><Field label="Owner name"><input value={profile.ownerName} onChange={event => setProfile(current => ({ ...current, ownerName: event.target.value }))} placeholder="Your full name" autoFocus /></Field><Field label="Salon name"><input value={profile.salonName} onChange={event => setProfile(current => ({ ...current, salonName: event.target.value }))} placeholder="What is your salon called?" /></Field><Field label="Address line 1"><textarea rows="3" value={profile.addressLine1} onChange={event => setProfile(current => ({ ...current, addressLine1: event.target.value }))} placeholder="Area, street, building" /></Field><Field label="Address line 2" hint="Optional"><input value={profile.addressLine2} onChange={event => setProfile(current => ({ ...current, addressLine2: event.target.value }))} placeholder="Landmark" /></Field><div className="form-two-col"><Field label="City"><input value={profile.city} onChange={event => setProfile(current => ({ ...current, city: event.target.value }))} placeholder="City" /></Field><SelectField label="State" value={profile.state} onChange={event => setProfile(current => ({ ...current, state: event.target.value }))} options={STATE_OPTIONS} placeholder="Select state" /></div><div className="form-two-col"><Field label="Pincode" hint="Optional"><input inputMode="numeric" maxLength="6" value={profile.pincode} onChange={event => setProfile(current => ({ ...current, pincode: event.target.value.replace(/\D/g, '').slice(0, 6) }))} placeholder="Pincode" /></Field><Field label="Email" hint="Optional"><input type="email" value={profile.email} onChange={event => setProfile(current => ({ ...current, email: event.target.value }))} placeholder="owner@example.com" /></Field></div><div className={cx('registration-location', latitude !== null && longitude !== null && 'ready')}><MapPin size={15} /><span>{latitude !== null && longitude !== null ? `Location ready · ${Number(latitude).toFixed(4)}, ${Number(longitude).toFixed(4)}` : locationError || 'Detecting salon location…'}</span><button type="button" onClick={detectLocation} disabled={locationBusy}>{locationBusy ? 'Detecting…' : 'Retry'}</button></div><Button type="submit">Next <ChevronRight size={17} /></Button></form>}{step === 'business' && <form onSubmit={continueBusiness}><label className="field"><span className="field-label">Salon type</span><div className="type-option-grid">{['MALE', 'FEMALE', 'UNISEX'].map(type => <button type="button" key={type} className={business.genderType === type ? 'active' : ''} onClick={() => setBusiness(current => ({ ...current, genderType: type }))}>{type === 'UNISEX' ? 'Unisex' : `${type.charAt(0)}${type.slice(1).toLowerCase()}`}</button>)}</div></label><div className="form-two-col"><Field label="Opens"><input type="time" value={business.openingTime} onChange={event => setBusiness(current => ({ ...current, openingTime: event.target.value }))} /></Field><Field label="Closes"><input type="time" value={business.closingTime} onChange={event => setBusiness(current => ({ ...current, closingTime: event.target.value }))} /></Field></div><Field label="Agent code" hint="Optional · exactly 10 digits"><input inputMode="numeric" maxLength="10" value={business.agentCode} onChange={event => setBusiness(current => ({ ...current, agentCode: event.target.value.replace(/\D/g, '').slice(0, 10) }))} placeholder="Optional agent code" /></Field><Button type="submit" loading={busy}>Choose a plan <ChevronRight size={17} /></Button></form>}</div></div>;
 }
@@ -597,6 +621,13 @@ function AppShell({ session, route, navigate, onLogout, onSessionUpdate, notifyI
       navigate('subscription', { mode: 'RENEW', forceRenewal: true }, { replace: true });
     }
   }, [navigate, route.name, route.params]);
+
+  useEffect(() => {
+    if (!isSalon) return undefined;
+    const onPlanExpired = () => forceSalonRenewal();
+    window.addEventListener('mynaai:plan-expired', onPlanExpired);
+    return () => window.removeEventListener('mynaai:plan-expired', onPlanExpired);
+  }, [forceSalonRenewal, isSalon]);
 
   useEffect(() => {
     if (!isSalon || subscriptionGate !== 'locked') return;
