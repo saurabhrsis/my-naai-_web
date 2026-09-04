@@ -36,17 +36,43 @@ describe('getServerUrl', () => {
 });
 
 describe('getFileUrl', () => {
-  it('builds the same /getfiles path the mobile app uses', () => {
-    expect(getFileUrl('ads/banner.jpg').endsWith('/getfiles/ads/banner.jpg')).toBe(true);
+  it('builds the mobile app’s /getFiles path for a bare upload path', () => {
+    expect(getFileUrl('ads/banner.jpg').endsWith('/getFiles/ads/banner.jpg')).toBe(true);
   });
 
-  it('keeps absolute URLs and local asset paths unchanged', () => {
+  // Ads come back as `/public/uploads/<file>.jpg`. Prefixing only absolute-path
+  // inputs used to hand back `https://backend.mynaai.in/public/uploads/…`, which
+  // the backend does not serve, so every carousel image 404’d.
+  it('routes a leading-slash upload path through /getFiles', () => {
+    const url = getFileUrl('/public/uploads/1786449506315-698102274.jpg');
+    expect(url.endsWith('/getFiles/public/uploads/1786449506315-698102274.jpg')).toBe(true);
+    expect(url).not.toMatch(/getFiles\/+getFiles/);
+    expect(url.replace(/^https?:\/\//, '')).not.toContain('//');
+  });
+
+  it('keeps the exact case-sensitive route spelling and never doubles it', () => {
+    expect(getFileUrl('/getFiles/ads/one.jpg').endsWith('/getFiles/ads/one.jpg')).toBe(true);
+    expect(getFileUrl('/getfiles/ads/one.jpg').endsWith('/getFiles/ads/one.jpg')).toBe(true);
+    expect(getFileUrl('getFiles/ads/one.jpg').endsWith('/getFiles/ads/one.jpg')).toBe(true);
+  });
+
+  it('repairs an absolute backend URL that skipped the route', () => {
+    expect(getFileUrl('https://backend.mynaai.in/public/uploads/1786449506315-698102274.jpg'))
+      .toBe('https://backend.mynaai.in/getFiles/public/uploads/1786449506315-698102274.jpg');
+    expect(getFileUrl('https://backend.mynaai.in/getFiles/public/uploads/a.jpg'))
+      .toBe('https://backend.mynaai.in/getFiles/public/uploads/a.jpg');
+  });
+
+  it('keeps foreign absolute URLs and local asset paths unchanged', () => {
     expect(getFileUrl('https://cdn.example/ad.jpg')).toBe('https://cdn.example/ad.jpg');
     expect(getFileUrl('/assets/brand/naai-logo-dark.svg')).toBe('/assets/brand/naai-logo-dark.svg');
   });
 
-  it('normalizes an already-prefixed getFiles path to lowercase', () => {
-    expect(getFileUrl('/getFiles/ads/one.jpg').endsWith('/getfiles/ads/one.jpg')).toBe(true);
+  it('returns an empty string for empty or prefix-only values', () => {
+    expect(getFileUrl('')).toBe('');
+    expect(getFileUrl('   ')).toBe('');
+    expect(getFileUrl('/getFiles/')).toBe('');
+    expect(getFileUrl(null)).toBe('');
   });
 });
 

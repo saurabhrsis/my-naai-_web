@@ -1,6 +1,9 @@
 // Advertisement carousel helpers. The mobile NaaiDashboard reads
 // `response.data.images` from GET /api/advertisement/get-advertisement and
-// renders each entry as `${server}/getfiles/${item}` with no overlay copy.
+// renders each entry as `${server}/getFiles/${item}` with no overlay copy. The
+// paths in that payload are inconsistent (`/public/uploads/x.jpg`,
+// `public/uploads/x.jpg`, a full URL), so every entry goes through
+// getFileUrl() before it reaches an <img>.
 
 function readImagePath(item) {
   if (typeof item === 'string') return item.trim();
