@@ -1,7 +1,7 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Bell, CheckCircle2, ChevronDown, CircleAlert, Copy, RefreshCw } from 'lucide-react';
 import { formatPushDiagnostics, getPushDiagnostics, getPushToken } from '../lib/push';
-import { Button, cx } from './Shared';
+import { Button, Modal, cx } from './Shared';
 
 // "Notifications are not working" can come from several layers — browser
 // permission, Firebase config, the messaging worker or the FCM token. Users
@@ -14,6 +14,8 @@ export function NotificationDiagnostics({ onEnabled }) {
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
   const [diagnostics, setDiagnostics] = useState(null);
+  const [report, setReport] = useState(null);
+  const reportRef = useRef(null);
 
   const run = useCallback(async () => {
     setBusy(true);
@@ -43,15 +45,48 @@ export function NotificationDiagnostics({ onEnabled }) {
             ? 'Allowed, but something needs a fix'
             : 'Required — enable notifications to continue';
 
-  const copyReport = async () => {
-    const text = `My Naai web push report · ${new Date().toLocaleString('en-IN')}\n${formatPushDiagnostics(diagnostics)}`;
+  const buildReport = () => `My Naai web push report · ${new Date().toLocaleString('en-IN')}\n${formatPushDiagnostics(diagnostics)}`;
+
+  // Clipboard access is refused in enough real situations (iOS Safari outside a
+  // user gesture, Chrome on iOS, an installed PWA resumed from the background,
+  // any non-secure context) that a fallback is mandatory. It is an in-app sheet
+  // with a selectable textarea — never `window.prompt`, which an installed PWA
+  // cannot style and may suppress outright.
+  const writeClipboard = async text => {
     try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2200);
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
     } catch (clipboardError) {
-      window.prompt('Copy this report for support:', text);
+      console.debug('Clipboard write was blocked; falling back to a selectable report.', clipboardError);
     }
+    try {
+      const field = reportRef.current;
+      if (field) {
+        field.focus();
+        field.select();
+        field.setSelectionRange(0, field.value.length);
+      }
+      return typeof document.execCommand === 'function' && document.execCommand('copy') === true;
+    } catch (legacyError) {
+      console.debug('Legacy clipboard copy failed too.', legacyError);
+      return false;
+    }
+  };
+
+  const markCopied = () => {
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2200);
+  };
+
+  const copyReport = async () => {
+    if (await writeClipboard(buildReport())) return markCopied();
+    setReport(buildReport());
+  };
+
+  const copyFromSheet = async () => {
+    if (await writeClipboard(report || buildReport())) markCopied();
   };
 
   const enable = async () => {
@@ -103,6 +138,28 @@ export function NotificationDiagnostics({ onEnabled }) {
           {diagnostics && <Button size="small" variant="secondary" onClick={copyReport}><Copy size={14} /> {copied ? 'Copied' : 'Copy report'}</Button>}
         </div>
       </div>}
+      <Modal
+        open={Boolean(report)}
+        onClose={() => setReport(null)}
+        title="Copy the report"
+        footer={(
+          <>
+            <Button variant="secondary" onClick={() => setReport(null)}>Close</Button>
+            <Button onClick={copyFromSheet}>{copied ? 'Copied' : 'Copy report'}</Button>
+          </>
+        )}
+      >
+        <p className="modal-lede">This browser blocked the clipboard. Press and hold in the box below, choose <strong>Select All</strong>, then <strong>Copy</strong> — and send it to My Naai support.</p>
+        <textarea
+          ref={reportRef}
+          className="report-textarea"
+          rows={9}
+          readOnly
+          value={report || ''}
+          aria-label="My Naai web push report"
+          onFocus={event => event.target.select()}
+        />
+      </Modal>
     </section>
   );
 }

@@ -4,8 +4,9 @@ import {
   Bell,
   Bookmark,
   BookmarkCheck,
-  CalendarDays,
   CalendarCheck2,
+  CalendarDays,
+  CalendarX2,
   Check,
   CheckCircle2,
   ChevronRight,
@@ -39,6 +40,7 @@ import { normalizeAdImages } from '../lib/ads';
 import { getNotificationRoute, isActionableNotification } from '../lib/push';
 
 import { subscribeToLiveUpdates } from '../lib/socket';
+import { LOGOUT_CONFIRM, useConfirm } from './ConfirmDialog';
 import {
   Button,
   DetailRow,
@@ -334,6 +336,7 @@ export function HomeScreen({ session, navigate, notify }) {
 }
 
 export function BookingsScreen({ session, notify }) {
+  const confirm = useConfirm();
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [cancelling, setCancelling] = useState('');
@@ -353,7 +356,18 @@ export function BookingsScreen({ session, notify }) {
 
   const filtered = bookings.filter(item => filter === 'all' || getBookingStatus(item).key === filter);
   const cancel = async bookingId => {
-    if (!window.confirm('Cancel this booking?')) return;
+    // In-app sheet instead of window.confirm: inside an installed PWA the native
+    // dialog is unstyled, says "website says", and on some Android builds never
+    // appears at all (the call then returns false and the button looks broken).
+    const confirmed = await confirm({
+      title: 'Cancel this booking?',
+      message: 'Your slot will be released to the salon. You can always book a new time.',
+      confirmLabel: 'Cancel booking',
+      cancelLabel: 'Keep it',
+      tone: 'danger',
+      icon: CalendarX2,
+    });
+    if (!confirmed) return;
     const previous = bookings;
     setBookings(items => items.filter(item => item.bookingId !== bookingId));
     setCancelling(bookingId);
@@ -384,6 +398,7 @@ export function ProductsScreen({ notify }) {
 }
 
 export function AccountScreen({ session, navigate, onLogout, notify, onSessionUpdate }) {
+  const confirm = useConfirm();
   const [profile, setProfile] = useState(session.user || {});
   const [editOpen, setEditOpen] = useState(false);
   const [name, setName] = useState(session.user?.fullName || '');
@@ -458,7 +473,7 @@ export function AccountScreen({ session, navigate, onLogout, notify, onSessionUp
       <button
         className="logout-button customer-logout"
         type="button"
-        onClick={() => { if (window.confirm('Are you sure you want to logout?')) onLogout(); }}
+        onClick={async () => { if (await confirm(LOGOUT_CONFIRM)) onLogout(); }}
       >
         <LogOut size={16} /> Logout
       </button>
