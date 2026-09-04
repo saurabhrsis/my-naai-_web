@@ -729,12 +729,18 @@ function SalonRegistration({ initialData, onBack, onComplete, notifyInstall }) {
 }
 function Brand({ light = false }) {
   return (
-    <div className={cx('brand', light && 'brand-light')} aria-label="My Naai">
-      <img className="brand-mark" src="/assets/my_naai.png" alt="" />
-      <span className="brand-wordmark">
-        <span className="brand-m">M</span>
-        <span className="brand-rest">y Naai</span>
+    <div className={cx('brand', light && 'brand-light')}>
+      <img className="brand-mark" src="/assets/my_naai.png" alt="" decoding="async" />
+      {/* Both capitals share .brand-cap, so the "M" and the "N" are always the
+          same size. The wordmark used to be "M" at 30px plus "y Naai" at 24px,
+          which left the N visibly smaller than the M in every header. */}
+      <span className="brand-wordmark" aria-hidden="true">
+        <span className="brand-cap">M</span>
+        <span className="brand-lower">y&nbsp;</span>
+        <span className="brand-cap">N</span>
+        <span className="brand-lower">aai</span>
       </span>
+      <span className="sr-only">My Naai</span>
     </div>
   );
 }

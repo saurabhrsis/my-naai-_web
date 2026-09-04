@@ -243,6 +243,51 @@ the notification bell in `.mobile-shell-bar` were the first things clipped.
 - `public/sw.js` moved to `mynaai-shell-v3` so already-installed PWAs drop the
   old shell cache and pick up the new `index.html` and manifest.
 
+### Responsiveness across every screen and browser
+
+A pass over all customer, partner and shared screens at 320 px, 375 px, 768 px,
+1024 px and 1600 px closed the remaining layout and browser-compatibility gaps:
+
+- **One image frame per component, everywhere.** `.salon-card-image-wrap` used
+  five hard-coded pixel heights (157/177/195/205/220), so the same photo was a
+  different crop on every breakpoint and portrait shots came out squat or
+  face-cropped. Salon cards now use a single `aspect-ratio: 16 / 10` frame
+  (pixel-height fallback for browsers without `aspect-ratio`), product tiles a
+  capped `4 / 3`, the detail hero `3 / 2` and barber slots `1 / 1`, always with
+  `object-position: center` (top for faces).
+- **Default images look intentional.** `ImageWithFallback` letterboxes any SVG
+  fallback (`.image-fallback-tile`: `object-fit: contain` + proportional padding
+  on a branded gold/green gradient) instead of stretching the square logo tile
+  across a wide frame, which is what made an empty salon card look broken. New
+  on-brand placeholders replace the stock pictures that stood in for missing
+  data: `public/assets/brand/product-placeholder.svg` (catalog items; the old
+  default was an unrelated advert photo) and
+  `public/assets/brand/person-placeholder.svg` (barbers/specialists; the old
+  default repeated one person's face for every slot).
+- **The wordmark reads the same everywhere.** "My Naai" is two `.brand-cap`
+  spans (M and N, identical size) plus two `.brand-lower` spans; it was "M" at
+  30 px and "y Naai" at 24 px before, so the two capitals disagreed. An
+  `sr-only` span keeps the accessible name "My Naai".
+- **Grids degrade instead of clipping.** `.plan-card-meta` uses
+  `repeat(auto-fit, minmax(96px, 1fr))` and `.time-grid`
+  `repeat(auto-fill, minmax(88px, 1fr))` (six columns from 760 px), so a 320 px
+  phone gets two columns of readable chips instead of three crushed ones.
+- **Older/quirky browsers.** `--viewport-height` declares `100vh` then `100svh`
+  and every full-height surface uses it, so iOS Safari < 15.4 and Chrome < 108
+  still get full-height screens; `-webkit-backdrop-filter` is paired with
+  `backdrop-filter` on all seven blurred surfaces for Safari; `text-size-adjust`
+  stops landscape text inflation; `touch-action: manipulation` removes the
+  double-tap zoom delay on buttons and links.
+- **iOS no longer zooms forms on focus.** Any focused control under 16 px made
+  Safari magnify the page; a `@media (pointer: coarse)` rule lifts every text
+  input, textarea and select to 16 px (the OTP field keeps its own size),
+  scoped with `:not()` so checkbox/radio/range/color inputs and desktop are
+  untouched.
+- **Safe areas completed.** The salon profile editor's sticky action bar clears
+  the home indicator (`bottom: max(8px, var(--safe-bottom))`), and the
+  subscription gate pads its own content with the top and bottom insets because
+  it hides the header.
+
 ### Confirmations are the app's own dialog, never the browser's
 
 `src/components/ConfirmDialog.jsx` exports `<ConfirmProvider>` (mounted once, at
@@ -325,7 +370,9 @@ Then test on an HTTPS deployment with a real customer and salon account:
 - Open Checkout and press back/close: confirm the *Payment cancelled — no amount was charged* notice and that **Continue** starts a fresh order.
 - Install to the Home Screen on an iPhone and an Android phone: the app name and the notification bell sit **below** the status bar (not cut in half), the bottom tab bar clears the gesture bar, and the Home Screen icon is labelled "My Naai".
 - Tap Logout, Cancel booking, Mark done and Delete service/product: the confirmation is the app's own sheet, with the same dark theme, on both iPhone (Safari and Chrome) and Android.
-
+- Load the home screen with a salon that has no photo (or block the image URLs): the card shows the My Naai tile centred on the branded gradient, never a stretched or half-cropped logo; products and barbers show their neutral placeholder tiles.
+- View the app at 320 px and 375 px: plan cards, time slots and every grid keep readable two-column chips, and tapping a login/search/profile field on an iPhone does not zoom the page.
+- Check the header wordmark: the M and the N are the same size on the login page, the mobile header and the desktop sidebar.
 ## 13. Known console noise (not a MyNaai bug)
 
 While Chrome DevTools is open, its Performance panel injects an anonymous helper script that can throw:
