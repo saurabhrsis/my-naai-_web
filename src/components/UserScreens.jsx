@@ -17,6 +17,7 @@ import {
   HelpCircle,
   Info,
   LocateFixed,
+  LogOut,
   MapPin,
   Navigation,
   Phone,
@@ -459,7 +460,7 @@ export function AccountScreen({ session, navigate, onLogout, notify, onSessionUp
         type="button"
         onClick={() => { if (window.confirm('Are you sure you want to logout?')) onLogout(); }}
       >
-        <span>Logout</span>
+        <LogOut size={16} /> Logout
       </button>
       <NotificationDiagnostics />
       <Modal open={editOpen} onClose={() => setEditOpen(false)} title="Edit Profile">

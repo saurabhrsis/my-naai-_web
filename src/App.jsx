@@ -878,7 +878,7 @@ function AppShell({ session, route, navigate, onLogout, onSessionUpdate, notifyI
     if (route.name === 'queue') return <SalonQueueScreen {...props} />;
     if (route.name === 'history') return <SalonHistoryScreen {...props} />;
     if (route.name === 'salonProducts') return <SalonProductsScreen {...props} />;
-    if (route.name === 'account') return <SalonAccountScreen {...props} />;
+    if (route.name === 'account') return <SalonAccountScreen {...props} onLogout={onLogout} />;
     if (route.name === 'notifications') return <NotificationsScreen {...props} />;
     if (route.name === 'editProfile') return <EditSalonProfileScreen {...props} params={route.params} />;
     if (route.name === 'bookingRequest') return <BookingRequestScreen {...props} params={route.params} />;
