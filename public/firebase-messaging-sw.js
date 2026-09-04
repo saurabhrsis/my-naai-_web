@@ -179,20 +179,24 @@ if (firebaseConfig.apiKey && firebaseConfig.projectId && firebaseConfig.messagin
   // The SDK calls this handler for *every* background message, but when the
   // payload carries a `notification` block it has already displayed that
   // notification itself (wrapped as data.FCM_MSG). Building a second one here
-  // produced duplicate alerts, so only data-only messages are rendered by us —
-  // the click handler above routes both shapes.
+  // would normally produce duplicate alerts, so only data-only messages are
+  // rendered by us — except for booking requests, where we *must* show our own
+  // notification with Accept/Reject/Delay action buttons. Using the same tag
+  // replaces the SDK's notification instead of duplicating it, so the partner
+  // always gets the actionable version.
   messaging.onBackgroundMessage(payload => {
-    if (payload.notification?.title || payload.notification?.body) return;
     const data = payload.data || {};
-    const title = data.title || 'My Naai update';
-    const body = data.body || 'You have a new update from My Naai.';
-    const target = notificationRoute(data);
     const type = String(data.type || data.notificationType || '').toUpperCase();
+    const isBookingRequest = type === 'BOOKING_REQUEST';
+    const hasNotificationBlock = Boolean(payload.notification?.title || payload.notification?.body);
+    if (hasNotificationBlock && !isBookingRequest) return;
+    const title = payload.notification?.title || data.title || 'My Naai update';
+    const body = payload.notification?.body || data.body || 'You have a new update from My Naai.';
+    const target = notificationRoute(data);
     // Time-critical alerts vibrate like the mobile app's buzzer. The OS decides
     // the audible notification sound (set on the server's push payload); a
     // closed service worker cannot synthesize a custom tone.
     const buzzer = type === 'BOOKING_REQUEST' || type === 'DELAY_BOOKING' || type === 'DELAY_TIME_PROPOSAL';
-    const isBookingRequest = type === 'BOOKING_REQUEST';
     // Best-effort background sound: the worker passes the buzzer file to the
     // browser so it can play it when the PWA is closed. Web notification sound
     // support is inconsistent (Android largely uses the OS/channel sound and

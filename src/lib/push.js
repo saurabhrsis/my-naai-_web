@@ -118,8 +118,16 @@ export async function getPushStatus() {
     return { state: 'unsupported', reason: `This browser context cannot receive web notifications.${installedHint}` };
   }
   if (Notification.permission === 'default') return { state: 'needs-permission', reason: 'Notification permission has not been granted yet.' };
-  const token = await getPushToken({ requestPermission: false });
-  return token ? { state: 'enabled', token } : { state: 'unavailable', reason: 'We could not prepare notifications in this browser. Please try again.' };
+  try {
+    const token = await getPushToken({ requestPermission: false });
+    if (token) return { state: 'enabled', token };
+  } catch (statusError) {
+    console.debug(getErrorMessage(statusError, 'Could not check notification status.'));
+  }
+  // Permission granted but token still empty — most often a transient service
+  // worker or Firebase initialization race. Surface as unavailable so the UI
+  // can offer a retry instead of staying silent.
+  return { state: 'unavailable', reason: 'We could not prepare notifications in this browser. Please try again.' };
 }
 
 export async function getPushToken({ requestPermission = false } = {}) {
@@ -133,15 +141,27 @@ export async function getPushToken({ requestPermission = false } = {}) {
       return '';
     }
   }
-  if (permission !== 'granted') return '';
+  if (permission !== 'granted') {
+    // Permission not granted — clear any stale token so diagnostics and login
+    // do not keep using an old value that the browser can no longer deliver to.
+    try { localStorage.removeItem('FCM_TOKEN'); } catch (storageError) { /* ignore */ }
+    return '';
+  }
   const registration = await getPushServiceWorker();
   if (!registration) return '';
   try {
     const token = await getToken(messaging, { vapidKey, serviceWorkerRegistration: registration });
-    if (token) localStorage.setItem('FCM_TOKEN', token);
-    return token || '';
+    if (token) {
+      localStorage.setItem('FCM_TOKEN', token);
+      return token;
+    }
+    // No token returned — treat as unavailable and clear stale storage.
+    try { localStorage.removeItem('FCM_TOKEN'); } catch (storageError) { /* ignore */ }
+    return '';
   } catch (error) {
     console.debug(getErrorMessage(error, 'Firebase could not generate a browser notification token.'));
+    // Keep existing stored token for diagnostics, but signal failure to caller
+    // so the login flow can surface a retry instead of silently using stale data.
     return '';
   }
 }
@@ -164,11 +184,13 @@ export async function displayNotification({ title, body, data = {}, onClick } = 
   if (typeof window === 'undefined' || !('Notification' in window) || Notification.permission !== 'granted') return false;
   const type = String(data.type || data.notificationType || '').toUpperCase();
   const buzzer = type === 'BOOKING_REQUEST' || type === 'DELAY_BOOKING' || type === 'DELAY_TIME_PROPOSAL';
+  const finalTitle = title || 'My Naai update';
+  const finalBody = body || 'You have a new update from My Naai.';
   const options = {
-    body: body || 'You have a new update from My Naai.',
+    body: finalBody,
     icon: '/icons/icon-192.png',
     badge: '/icons/icon-192.png',
-    tag: data.bookingRequestId || data.type || 'mynaai-notification',
+    tag: data.bookingRequestId || data.bookingId || data.type || 'mynaai-notification',
     data: { ...data, target: notificationTarget(data) },
     requireInteraction: type === 'BOOKING_REQUEST' || type === 'DELAY_TIME_PROPOSAL',
     // Buzzer-style vibration for time-critical alerts (Android browsers).
@@ -182,22 +204,29 @@ export async function displayNotification({ title, body, data = {}, onClick } = 
     // body still opens BookingRequestScreen as the universal fallback.
     actions: type === 'BOOKING_REQUEST' ? bookingRequestActions() : undefined,
   };
+  // Prefer the messaging service worker — its click handler is the single
+  // source of truth for deep-link routing, even for foreground messages.
   try {
     const registration = await getPushServiceWorker();
     if (registration?.showNotification) {
-      await registration.showNotification(title || 'My Naai update', options);
+      await registration.showNotification(finalTitle, options);
       return true;
     }
   } catch (error) {
     console.debug(getErrorMessage(error, 'The notification service worker could not display the alert.'));
   }
+  // Fallback to the Window Notification API when the worker is unavailable
+  // (e.g. first visit race, blocked registration). The onClick handler still
+  // deep-links to the correct screen.
   try {
-    const notification = new Notification(title || 'My Naai update', { body: options.body, icon: options.icon, tag: options.tag });
-    if (onClick) notification.onclick = event => {
-      event?.preventDefault?.();
-      onClick();
-      notification.close?.();
-    };
+    const notification = new Notification(finalTitle, { body: finalBody, icon: options.icon, tag: options.tag });
+    if (onClick) {
+      notification.onclick = event => {
+        try { event?.preventDefault?.(); } catch (clickError) { /* ignore */ }
+        try { onClick(); } catch (handlerError) { console.debug(getErrorMessage(handlerError, 'Notification click handler failed.')); }
+        try { notification.close?.(); } catch (closeError) { /* ignore */ }
+      };
+    }
     return true;
   } catch (error) {
     console.debug(getErrorMessage(error, 'This browser blocked the in-page notification.'));
@@ -304,7 +333,18 @@ export async function getPushDiagnostics() {
   add('Push subscription', subscription ? 'ok' : 'warn', subscription ? `Active · ${(subscription.endpoint || '').replace(/^https?:\/\//, '').split('/')[0]}` : 'None yet', subscription ? '' : 'Created on the next token request.');
 
   const storedToken = typeof localStorage !== 'undefined' ? localStorage.getItem('FCM_TOKEN') || '' : '';
-  const token = storedToken || (messaging ? await getPushToken({ requestPermission: false }) : '');
+  let token = storedToken;
+  // Always attempt a fresh token when messaging is available — a stale stored
+  // token can hide a current worker/Firebase failure.
+  if (messaging) {
+    try {
+      const fresh = await getPushToken({ requestPermission: false });
+      if (fresh) token = fresh;
+    } catch (tokenError) {
+      console.debug(getErrorMessage(tokenError, 'Could not refresh FCM token for diagnostics.'));
+    }
+  }
+  if (!token) token = storedToken;
   add('FCM device token', token ? 'ok' : 'fail', token ? maskToken(token) : 'Empty', token
     ? 'This is the value sent to the API as deviceToken.'
     : Notification.permission === 'granted'
