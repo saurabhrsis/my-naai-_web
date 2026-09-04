@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ArrowDownToLine,
   ArrowRight,
   Bell,
   Bookmark,
@@ -50,7 +49,6 @@ import {
   getDistanceInKm,
   getErrorMessage,
   normalizeDistanceInKm,
-  getInitials,
   getSalonStatus,
   ImageWithFallback,
   Modal,
@@ -386,15 +384,29 @@ export function ProductsScreen({ notify }) {
 
 export function AccountScreen({ session, navigate, onLogout, notify, onSessionUpdate }) {
   const [profile, setProfile] = useState(session.user || {});
-  const [loading, setLoading] = useState(true);
   const [editOpen, setEditOpen] = useState(false);
-  const [name, setName] = useState(profile.fullName || '');
+  const [name, setName] = useState(session.user?.fullName || '');
   const [saving, setSaving] = useState(false);
+  const onSessionUpdateRef = useRef(onSessionUpdate);
+  onSessionUpdateRef.current = onSessionUpdate;
+
+  // Same content as the app Account screen: name, phone, edit, About / FAQ /
+  // Terms / help, then logout. Never replace the page with a spinner — session
+  // already has the logged-in user, and refreshing profile must not loop.
   const load = useCallback(async () => {
-    setLoading(true);
-    try { const response = await api.userProfile({ userId: session.userId }); if (response?.status === 'SUCCESS') { setProfile(response.data); onSessionUpdate?.(response.data); } } catch (error) { notify?.('error', getErrorMessage(error, 'Unable to load your profile.')); } finally { setLoading(false); }
-  }, [notify, onSessionUpdate, session.userId]);
+    if (!session.userId) return;
+    try {
+      const response = await api.userProfile({ userId: session.userId });
+      if (response?.status === 'SUCCESS' && response.data) {
+        setProfile(current => ({ ...current, ...response.data }));
+        onSessionUpdateRef.current?.(response.data);
+      }
+    } catch (error) {
+      notify?.('error', getErrorMessage(error, 'Unable to load your profile.'));
+    }
+  }, [notify, session.userId]);
   useEffect(() => { load(); }, [load]);
+
   const save = async event => {
     event.preventDefault();
     if (!name.trim()) return notify?.('error', 'Name cannot be empty.');
@@ -402,12 +414,66 @@ export function AccountScreen({ session, navigate, onLogout, notify, onSessionUp
     try {
       const response = await api.updateProfile({ userId: session.userId, fullName: name.trim() });
       if (response?.status && response.status !== 'SUCCESS') throw new Error(response.message || 'Update failed');
-      const next = { ...profile, fullName: name.trim() }; setProfile(next); onSessionUpdate?.(next); setEditOpen(false); notify?.('success', 'Profile updated successfully.');
-    } catch (error) { notify?.('error', getErrorMessage(error, 'Could not update profile.')); } finally { setSaving(false); }
+      const next = { ...profile, fullName: name.trim() };
+      setProfile(next);
+      onSessionUpdateRef.current?.(next);
+      setEditOpen(false);
+      notify?.('success', 'Profile updated successfully.');
+    } catch (error) {
+      notify?.('error', getErrorMessage(error, 'Could not update profile.'));
+    } finally {
+      setSaving(false);
+    }
   };
-  const menus = [{ label: 'About My Naai', caption: 'Why we built a better way to book', icon: Info, route: 'about' }, { label: 'Frequently asked questions', caption: 'Quick answers about bookings', icon: HelpCircle, route: 'faq' }, { label: 'Terms & conditions', caption: 'The important fine print', icon: ShieldCheck, route: 'terms' }, { label: 'Need a hand?', caption: 'Call 8380017393', icon: Phone, action: () => window.open('tel:8380017393') }];
-  if (loading) return <div className="screen account-screen"><PageHeader title="Account" /><div className="account-loading"><Spinner label="Loading profile…" /></div></div>;
-  return <div className="screen account-screen"><PageHeader title="Account" subtitle="Your My Naai profile and preferences." /><section className="profile-card"><div className="profile-avatar">{getInitials(profile.fullName || 'User')}</div><div className="profile-copy"><span className="eyebrow">CUSTOMER PROFILE</span><h2>{profile.fullName || 'My Naai user'}</h2><p><Phone size={14} /> +91 {profile.phoneNumber || '—'}</p></div><button className="edit-profile-button" onClick={() => { setName(profile.fullName || ''); setEditOpen(true); }}><UserRound size={15} /> Edit</button></section><div className="account-card">{menus.map(item => <button className="account-menu-row" key={item.label} onClick={item.action || (() => navigate(item.route))}><span className="account-menu-icon"><item.icon size={18} /></span><span><strong>{item.label}</strong><small>{item.caption}</small></span><ChevronRight size={17} /></button>)}</div><button className="logout-button" onClick={onLogout}><span><ArrowDownToLine size={17} /> Sign out</span><span className="logout-arrow">↗</span></button><NotificationDiagnostics /><p className="version-label">My Naai web portal · 1.0</p><Modal open={editOpen} onClose={() => setEditOpen(false)} title="Edit profile"><form className="modal-form" onSubmit={save}><Field label="Full name"><input value={name} onChange={event => setName(event.target.value)} placeholder="Your name" autoFocus /></Field><Field label="Mobile number" hint="Your mobile number is used for OTP login."><input value={profile.phoneNumber || ''} disabled /></Field><div className="form-actions"><Button type="button" variant="secondary" onClick={() => setEditOpen(false)}>Cancel</Button><Button type="submit" loading={saving}>Save changes</Button></div></form></Modal></div>;
+
+  const menus = [
+    { label: 'About', caption: 'Why we built a better way to book', icon: Info, route: 'about' },
+    { label: 'FAQ', caption: 'Quick answers about bookings', icon: HelpCircle, route: 'faq' },
+    { label: 'Terms & Conditions', caption: 'The important fine print', icon: ShieldCheck, route: 'terms' },
+    { label: 'Want Help ? Call on : 8380017393', caption: 'Talk to My Naai support', icon: Phone, action: () => window.open('tel:8380017393') },
+  ];
+
+  return (
+    <div className="screen account-screen">
+      <PageHeader title="Account" />
+      <section className="profile-card customer-profile-card">
+        <div className="profile-copy">
+          <h2>{profile.fullName || session.user?.fullName || 'User'}</h2>
+          <p><Phone size={14} /> {profile.phoneNumber || session.user?.phoneNumber || ''}</p>
+        </div>
+        <button className="edit-profile-button" type="button" onClick={() => { setName(profile.fullName || session.user?.fullName || ''); setEditOpen(true); }}>
+          Edit Profile
+        </button>
+      </section>
+      <div className="account-card">
+        {menus.map(item => (
+          <button className="account-menu-row" key={item.label} type="button" onClick={item.action || (() => navigate(item.route))}>
+            <span className="account-menu-icon"><item.icon size={18} /></span>
+            <span><strong>{item.label}</strong><small>{item.caption}</small></span>
+            <ChevronRight size={17} />
+          </button>
+        ))}
+      </div>
+      <button
+        className="logout-button customer-logout"
+        type="button"
+        onClick={() => { if (window.confirm('Are you sure you want to logout?')) onLogout(); }}
+      >
+        <span>Logout</span>
+      </button>
+      <NotificationDiagnostics />
+      <Modal open={editOpen} onClose={() => setEditOpen(false)} title="Edit Profile">
+        <form className="modal-form" onSubmit={save}>
+          <Field label="Name"><input value={name} onChange={event => setName(event.target.value)} placeholder="Name" autoFocus /></Field>
+          <Field label="Mobile Number" hint="Your mobile number is used for OTP login."><input value={profile.phoneNumber || session.user?.phoneNumber || ''} disabled /></Field>
+          <div className="form-actions">
+            <Button type="button" variant="secondary" onClick={() => setEditOpen(false)}>Cancel</Button>
+            <Button type="submit" loading={saving}>Save</Button>
+          </div>
+        </form>
+      </Modal>
+    </div>
+  );
 }
 
 export function SalonDetailScreen({ params, navigate, notify }) {

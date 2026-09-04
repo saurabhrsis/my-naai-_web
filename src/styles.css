@@ -344,6 +344,11 @@ img { display: block; max-width: 100%; }
 .profile-copy p, .salon-profile-copy p { display: flex; align-items: flex-start; gap: 5px; margin: 0; color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
 .profile-copy p svg, .salon-profile-copy p svg { flex: none; margin-top: 1px; }
 .edit-profile-button { display: inline-flex; align-items: center; gap: 5px; padding: 8px 9px; border-radius: 9px; color: var(--gold); background: rgba(232,185,126,.12); font-size: 10px; font-weight: 700; }
+.customer-profile-card { flex-direction: column; align-items: center; text-align: center; gap: 4px; padding: 22px 16px; }
+.customer-profile-card .profile-copy { flex: none; display: flex; flex-direction: column; align-items: center; }
+.customer-profile-card .profile-copy h2 { overflow: visible; margin: 0; font-weight: 800; text-transform: capitalize; white-space: normal; }
+.customer-profile-card .profile-copy p { justify-content: center; margin-top: 4px; }
+.customer-profile-card .edit-profile-button { margin: 14px 0 0; padding: 8px 24px; border-radius: 20px; color: #0c0d0d; background: var(--gold); font-size: 13px; font-weight: 700; }
 .account-card { overflow: hidden; margin-bottom: 16px; border: 1px solid var(--line); border-radius: 18px; background: var(--card); }
 .account-menu-row { width: 100%; display: flex; align-items: center; gap: 11px; padding: 15px 13px; border-bottom: 1px solid var(--line); color: var(--muted); background: transparent; text-align: left; }
 .account-menu-row:last-child { border-bottom: 0; }
@@ -954,6 +959,9 @@ img { display: block; max-width: 100%; }
   .profile-card, .salon-profile-hero { align-items: flex-start; flex-wrap: wrap; }
   .profile-copy, .salon-profile-copy { flex: 1 1 130px; }
   .profile-card > .edit-profile-button, .salon-profile-hero > .btn { margin-left: auto; }
+  .customer-profile-card { align-items: center; flex-wrap: nowrap; }
+  .customer-profile-card .profile-copy { flex: none; }
+  .customer-profile-card > .edit-profile-button { margin-left: 0; }
   .request-card-top { align-items: flex-start; }
   .request-actions > div { flex-wrap: wrap; }
   .request-actions > div .btn { min-width: 0; }
